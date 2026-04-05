@@ -5,72 +5,84 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
+)
+
+var (
+	barreiraFechada bool       // Estado da barreira
+	mu              sync.Mutex // Garante acesso seguro entre UDP e TCP
 )
 
 func main() {
-	// Mantém a escuta para comandos do cliente (TCP) e dados do sensor (UDP)
-	go recebesensores()
-	go recebecliente()
-	fmt.Println("ATUADOR 1 EM OPERAÇÃO - Monitorando Threshold > 50")
+	fmt.Println("ATUADOR 1 (Barreira) - Iniciado")
+	fmt.Println("Regra: Se > 50, fecha. Só abre via comando manual do Cliente.")
+
+	go recebesensores() // Escuta telemetria (UDP)
+	go recebecliente()  // Escuta comandos (TCP)
+
 	select {}
 }
 
 func recebesensores() {
-	endr, err := net.ResolveUDPAddr("udp", ":8080")
-	if err != nil {
-		fmt.Printf("Erro ao resolver UDP: %v\n", err)
-		return
-	}
-	conn, err := net.ListenUDP("udp", endr)
-	if err != nil {
-		fmt.Printf("Erro ao iniciar escuta UDP: %v\n", err)
-		return
-	}
+	addr, _ := net.ResolveUDPAddr("udp", ":8080")
+	conn, _ := net.ListenUDP("udp", addr)
 	defer conn.Close()
 
 	for {
 		buffer := make([]byte, 1024)
-		n, _, err := conn.ReadFromUDP(buffer)
-		if err == nil {
-			msg := strings.TrimSpace(string(buffer[:n]))
+		n, _, _ := conn.ReadFromUDP(buffer)
+		msg := strings.TrimSpace(string(buffer[:n]))
 
-			// Converte a mensagem para inteiro para validar a regra de negócio
-			valor, err := strconv.Atoi(msg)
-			if err != nil {
-				// Caso a mensagem não seja um número, apenas exibe como log
-				fmt.Printf("[LOG] Mensagem não numérica recebida: %s\n", msg)
-				continue
-			}
-
-			fmt.Printf("[DADO] Valor recebido do sensor: %d\n", valor)
-
-			// Lógica solicitada: Se maior que 50, executa função de segurança
-			if valor > 50 {
-				executaAcaoEmergencia(valor)
-			}
-		}
-	}
-}
-
-// Simula a função do atuador (Ex: Fechar Barreira de Acesso ou Alerta no PMV)
-func executaAcaoEmergencia(v int) {
-	fmt.Printf("!!! ALERTA !!! Valor %d excede o limite. EXECUTANDO AÇÃO: [FECHANDO BARREIRA]\n", v)
-}
-
-func recebecliente() {
-	ln, err := net.Listen("tcp", ":8080")
-	if err != nil {
-		fmt.Printf("Falha no Listen TCP: %v\n", err)
-		return
-	}
-	for {
-		conn, err := ln.Accept()
+		// Converte valor do sensor
+		valor, err := strconv.Atoi(msg)
 		if err != nil {
 			continue
 		}
+
+		mu.Lock()
+		// Lógica: Se o sensor detectar perigo (>50), fecha a barreira
+		if valor > 50 && !barreiraFechada {
+			barreiraFechada = true
+			fmt.Printf("[ALERTA] Sensor em %d: FECHANDO BARREIRA POR SEGURANÇA.\n", valor)
+		} else if valor <= 50 {
+			// Se o valor baixar, ela NÃO abre sozinha conforme solicitado
+			fmt.Printf("[MONITORAMENTO] Valor: %d | Barreira continua: %s\n", valor, statusBarreira())
+		}
+		mu.Unlock()
+	}
+}
+
+func recebecliente() {
+	ln, _ := net.Listen("tcp", ":8080")
+	defer ln.Close()
+
+	for {
+		conn, _ := ln.Accept()
 		buffer := make([]byte, 1024)
 		n, _ := conn.Read(buffer)
-		fmt.Printf("[COMANDO CLIENTE] Recebido: %s\n", string(buffer[:n]))
+		comando := strings.ToUpper(strings.TrimSpace(string(buffer[:n])))
+
+		mu.Lock()
+		if comando == "ABRIR" || comando == "OPEN" {
+			if barreiraFechada {
+				barreiraFechada = false
+				fmt.Println("[COMANDO CLIENTE] Barreira REABERTA manualmente.")
+				conn.Write([]byte("Sucesso: Barreira aberta.\n"))
+			} else {
+				conn.Write([]byte("Aviso: Barreira já estava aberta.\n"))
+			}
+		} else {
+			conn.Write([]byte("Erro: Comando não reconhecido.\n"))
+		}
+		mu.Unlock()
 		conn.Close()
 	}
+}
+
+// Função auxiliar para logs
+func statusBarreira() string {
+	if barreiraFechada {
+		return "FECHADA"
+	}
+	return "ABERTA"
 }
