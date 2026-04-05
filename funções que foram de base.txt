@@ -105,3 +105,57 @@ func enviacliente() {
 		}
 	}
 }
+
+FUNÇÃO ANTIGA ATUADOR1
+*func recebeDadosUDP() {
+	addr, err := net.ResolveUDPAddr("udp", ":8080")
+	if err != nil {
+		fmt.Printf("Erro ao resolver endereço: %v\n", err)
+		return
+	}
+
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		fmt.Printf("Erro ao abrir socket UDP: %v\n", err)
+		return
+	}
+	defer conn.Close()
+
+	fmt.Println("Atuador aguardando dados via UDP...")
+
+	for {
+		buffer := make([]byte, 1024)
+		n, _, err := conn.ReadFromUDP(buffer)
+		if err != nil {
+			fmt.Printf("Erro na leitura: %v\n", err)
+			continue
+		}
+
+		var dados DadosSensor
+		err = json.Unmarshal(buffer[:n], &dados)
+		if err != nil {
+			fmt.Printf("Erro ao decodificar JSON: %v\n", err)
+			continue
+		}
+
+		processarDecisao(dados)
+	}
+}
+
+func processarDecisao(d DadosSensor) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	fmt.Printf("\n[TELEMETRIA] %s em %s: %d\n", d.Tipo, d.Localidade, d.Valor)
+
+	// Lógica automática baseada nos limiares solicitados
+	if d.Valor > 70 && barreiraAberta {
+		barreiraAberta = false
+		fmt.Println("ALERTA: Nível crítico! Fechando barreira automaticamente.")
+	} else if d.Valor < 50 && !barreiraAberta {
+		barreiraAberta = true
+		fmt.Println("STATUS: Nível seguro. Abrindo barreira automaticamente.")
+	}
+
+	fmt.Printf("Estado da barreira: Aberta = %v\n", barreiraAberta)
+}*/

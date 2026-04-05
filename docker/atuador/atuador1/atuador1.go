@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
@@ -26,7 +25,6 @@ func main() {
 	go recebeComandosTCP()
 
 	// Mantém a escuta de telemetria na rotina principal
-	recebeDadosUDP()
 }
 
 func recebeComandosTCP() {
@@ -72,7 +70,7 @@ func handleTCPConnection(conn net.Conn) {
 	mu.Unlock()
 }
 
-func recebeDadosUDP() {
+/*func recebeDadosUDP() {
 	addr, err := net.ResolveUDPAddr("udp", ":8080")
 	if err != nil {
 		fmt.Printf("Erro ao resolver endereço: %v\n", err)
@@ -123,4 +121,4 @@ func processarDecisao(d DadosSensor) {
 	}
 
 	fmt.Printf("Estado da barreira: Aberta = %v\n", barreiraAberta)
-}
+}*/
