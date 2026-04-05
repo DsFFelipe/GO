@@ -2,66 +2,36 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"strings"
-	"time" // Adicionado para controle de timeout
+	"sync"
+)
+
+// Estrutura que espelha o mapa enviado pelo sensor
+type MensagemSensor struct {
+	Tipo       string `json:"tipo"`
+	Valor      int    `json:"valor"`
+	Localidade string `json:"localidade"`
+}
+
+// Variáveis globais para armazenar o estado dos sensores
+var (
+	sensoresAtivos = make(map[string]MensagemSensor)
+	mu             sync.Mutex
 )
 
 func main() {
-	// Canal para transferir a string do teclado para a função de envio
-	// Alteração: Adicionado buffer de 100 para evitar que o input bloqueie se a rede estiver lenta
-	comandoChan := make(chan string, 100)
+	comandoChan := make(chan string)
 
 	go testeinput(comandoChan)
 	go envia(comandoChan)
 	go recebe()
-	fmt.Println("Cliente em execução...")
-	select {} // Bloqueia a main para manter as goroutines vivas
-}
 
-func testeinput(ch chan<- string) {
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		fmt.Print("\nDigite o comando: ")
-		// Scan() bloqueia a execução esperando o Enter
-		if !scanner.Scan() {
-			break
-		}
-		msg := scanner.Text()
-
-		// Envia para a goroutine de rede via canal
-		ch <- msg
-
-		if strings.ToLower(msg) == "sair" {
-			os.Exit(0)
-		}
-	}
-}
-
-func envia(ch <-chan string) {
-	for {
-		// Bloqueia e aguarda uma mensagem chegar pelo canal
-		msg := <-ch
-
-		// Estabelece a conexão TCP com o servidor
-		// Alteração: DialTimeout adicionado para não travar o cliente caso o servidor esteja sobrecarregado
-		conn, err := net.DialTimeout("tcp", "servidor:8080", 3*time.Second)
-		if err != nil {
-			fmt.Printf("\n[ERRO] Servidor ocupado ou inacessível: %v\n", err)
-			continue
-		}
-
-		// Converte a string em um slice de bytes e envia diretamente
-		_, err = conn.Write([]byte(msg))
-		if err != nil {
-			fmt.Printf("Erro ao enviar dados: %v\n", err)
-		}
-
-		// Encerra a conexão após o envio
-		conn.Close()
-	}
+	fmt.Println("Monitor do Cliente em execução...")
+	select {}
 }
 
 func recebe() {
@@ -79,8 +49,70 @@ func recebe() {
 		buffer := make([]byte, 1024)
 		n, _, err := conn.ReadFromUDP(buffer)
 		if err == nil {
-			// Alteração: Uso de \r e re-impressão do prompt para limpar a linha e manter o contexto do usuário
-			fmt.Printf("\r[Recebido]: %s\nDigite o comando: ", string(buffer[:n]))
+			var dados MensagemSensor
+			err := json.Unmarshal(buffer[:n], &dados)
+
+			if err != nil {
+				// Ignora mensagens que não sejam JSON para manter o terminal limpo
+				continue
+			} else {
+				// Lock para escrita segura na variável global
+				mu.Lock()
+				chave := fmt.Sprintf("%s-%s", dados.Tipo, dados.Localidade)
+				sensoresAtivos[chave] = dados
+				mu.Unlock()
+			}
 		}
+	}
+}
+
+func testeinput(ch chan<- string) {
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		fmt.Print("Digite um comando (ou 'listar' para ver sensores): ")
+		if !scanner.Scan() {
+			break
+		}
+		msg := strings.TrimSpace(scanner.Text())
+
+		// Intercepta o comando de listagem localmente
+		if strings.ToLower(msg) == "listar" {
+			exibirSensores()
+			continue
+		}
+
+		ch <- msg
+		if strings.ToLower(msg) == "sair" {
+			os.Exit(0)
+		}
+	}
+}
+
+func exibirSensores() {
+	// Lock para leitura segura da variável global
+	mu.Lock()
+	defer mu.Unlock()
+
+	fmt.Println("\n--- Relatório de Telemetria ---")
+	if len(sensoresAtivos) == 0 {
+		fmt.Println("Nenhum dado recebido ainda.")
+	} else {
+		for _, dados := range sensoresAtivos {
+			fmt.Printf("Sensor: %s | Local: %s | Valor medido: %d\n", dados.Tipo, dados.Localidade, dados.Valor)
+		}
+	}
+	fmt.Println("-------------------------------")
+}
+
+func envia(ch <-chan string) {
+	for {
+		msg := <-ch
+		conn, err := net.Dial("tcp", "servidor:8080")
+		if err != nil {
+			fmt.Printf("\nErro ao conectar ao servidor: %v\n", err)
+			continue
+		}
+		conn.Write([]byte(msg))
+		conn.Close()
 	}
 }
