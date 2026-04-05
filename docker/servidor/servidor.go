@@ -13,16 +13,16 @@ func main() {
 
 	// Inicia os fluxos de recebimento e envio
 	go recebecliente(clienteChan)
-	go recebesensor1(sensorParaClienteChan, sensorParaAtuadorChan)
+	go recebesensor(sensorParaClienteChan, sensorParaAtuadorChan)
 
 	go enviacliente(sensorParaClienteChan)
-	go enviaatuador1UDP(sensorParaAtuadorChan)
-	go enviaatuador1TCP(clienteChan)
+	go enviaatuadorUDP(sensorParaAtuadorChan)
+	go enviaatuadorTCP(clienteChan)
 
 	select {} // Mantém o servidor vivo
 }
 
-func recebesensor1(chCliente chan<- []byte, chAtuador chan<- []byte) {
+func recebesensor(chCliente chan<- []byte, chAtuador chan<- []byte) {
 	endr, err := net.ResolveUDPAddr("udp", ":8080")
 	if err != nil {
 		fmt.Printf("Erro no endereço UDP: %v\n", err)
@@ -70,7 +70,7 @@ func recebecliente(ch chan<- []byte) {
 	}
 }
 
-func enviaatuador1TCP(ch <-chan []byte) {
+func enviaatuadorTCP(ch <-chan []byte) {
 	for {
 		msg := <-ch
 		conn, err := net.Dial("tcp", "atuador1:8080")
@@ -93,7 +93,7 @@ func enviacliente(ch <-chan []byte) {
 	}
 }
 
-func enviaatuador1UDP(ch <-chan []byte) {
+func enviaatuadorUDP(ch <-chan []byte) {
 	conn, err := net.Dial("udp", "atuador1:8080")
 	if err != nil {
 		return
