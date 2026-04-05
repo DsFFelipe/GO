@@ -1,32 +1,44 @@
- package main
+package main
 
 import (
+	"encoding/json" // Necessário para converter bytes em estruturas de dados
 	"fmt"
 	"net"
 	"sync"
 )
 
-func main() {
-	// Canaispara comunicação entre goroutines
-	sensorParaClienteChan := make(chan []byte)
-	DadosSensor := make(chan []byte)
-	clienteChan := make(chan []byte)
-
-	// Inicia os fluxos de recebimento e envio
-	go recebecliente(clienteChan)
-	go recebesensor(sensorParaClienteChan, sensorParaAtuadorChan)
-
-	go enviacliente(sensorParaClienteChan)
-	//go enviaatuadorUDP(sensorParaAtuadorChan)
-	go enviaatuadorTCP(clienteChan)
-
-	select {} // Mantém o servidor vivo
+// Estrutura para interpretar os dados vindos do sensor
+type Dados struct {
+	Tipo       string `json:"tipo"`
+	Valor      int    `json:"valor"`
+	Localidade string `json:"localidade"`
 }
 
 var (
 	barreiraAberta bool       = true
 	mu             sync.Mutex // Garante que apenas uma rotina altere o estado por vez
 )
+
+func main() {
+	// Canais para comunicação entre goroutines
+	sensorParaClienteChan := make(chan []byte)
+	DadosSensor := make(chan []byte)
+	clienteChan := make(chan []byte)
+
+	// Inicia os fluxos de recebimento e envio
+	go recebecliente(clienteChan)
+	// Ajustado para usar o canal DadosSensor declarado acima
+	go recebesensor(sensorParaClienteChan, DadosSensor)
+
+	go enviacliente(sensorParaClienteChan)
+
+	// Inicia a lógica de decisão automática
+	go processarDecisao(DadosSensor, clienteChan)
+
+	go enviaatuadorTCP(clienteChan)
+
+	select {} // Mantém o servidor vivo
+}
 
 func recebesensor(chCliente chan<- []byte, DadosSensor chan<- []byte) {
 	endr, err := net.ResolveUDPAddr("udp", ":8080")
@@ -99,33 +111,35 @@ func enviacliente(ch <-chan []byte) {
 	}
 }
 
-/*func enviaatuadorUDP(ch <-chan []byte) {
-	conn, err := net.Dial("udp", "atuador1:8080")
-	if err != nil {
-		return
-	}
+// Lógica de processamento e decisão automática
+func processarDecisao(chSensor <-chan []byte, chAtuador chan<- []byte) {
 	for {
-		msg := <-ch
-		conn.Write(msg)
+		// Recebe os bytes do canal do sensor
+		rawBytes := <-chSensor
+
+		var d Dados
+		// Converte JSON em estrutura Go
+		err := json.Unmarshal(rawBytes, &d)
+		if err != nil {
+			fmt.Println("Erro ao decodificar JSON:", err)
+			continue
+		}
+
+		mu.Lock()
+		fmt.Printf("\n[TELEMETRIA] %s em %s: %d\n", d.Tipo, d.Localidade, d.Valor)
+
+		// Lógica automática: envia comandos de texto para o atuador via canal
+		if d.Valor > 70 && barreiraAberta {
+			barreiraAberta = false
+			fmt.Println("ALERTA: Nível crítico! Fechando barreira automaticamente.")
+			chAtuador <- []byte("FECHAR")
+		} else if d.Valor < 50 && !barreiraAberta {
+			barreiraAberta = true
+			fmt.Println("STATUS: Nível seguro. Abrindo barreira automaticamente.")
+			chAtuador <- []byte("ABRIR")
+		}
+
+		fmt.Printf("Estado da barreira: Aberta = %v\n", barreiraAberta)
+		mu.Unlock()
 	}
-}*/
-
-//Lógica de dados
-
-func processarDecisao(ch <-chan []byte) {
-	mu.Lock()
-	defer mu.Unlock()
-	d:= ch <- 
-	fmt.Printf("\n[TELEMETRIA] %s em %s: %d\n", d.Tipo, d.Localidade, d.Valor)
-
-	// Lógica automática baseada nos limiares solicitados
-	if d.Valor > 70 && barreiraAberta {
-		barreiraAberta = false
-		fmt.Println("ALERTA: Nível crítico! Fechando barreira automaticamente.")
-	} else if d.Valor < 50 && !barreiraAberta {
-		barreiraAberta = true
-		fmt.Println("STATUS: Nível seguro. Abrindo barreira automaticamente.")
-	}
-
-	fmt.Printf("Estado da barreira: Aberta = %v\n", barreiraAberta)
 }
