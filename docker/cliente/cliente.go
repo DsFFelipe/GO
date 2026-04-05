@@ -22,15 +22,23 @@ func main() {
 func testeinput(ch chan<- string) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
-		fmt.Println("\nDigite o comando:")
-		// Scan() bloqueia a execução esperando o Enter
+		fmt.Println("\nSelecione um comando para enviar:")
+		fmt.Println("1 - Abrir")
+		fmt.Println("Ou digite 'sair' para encerrar")
+
 		if !scanner.Scan() {
 			break
 		}
 		msg := scanner.Text()
 
-		// Envia para a goroutine de rede via canal
-		ch <- msg
+		// Verifica se o usuário escolheu o comando de fechar barreira
+		if msg == "1" {
+			ch <- "ABRIR"
+
+		} else {
+			// Envia qualquer outra string normalmente
+			ch <- msg
+		}
 
 		if strings.ToLower(msg) == "sair" {
 			os.Exit(0)
