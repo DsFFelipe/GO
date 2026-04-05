@@ -12,41 +12,46 @@ import (
 	"time"
 )
 
-// Variáveis globais para controle de estado
 var (
-	localidade = "norte"  // Valor inicial
-	mu         sync.Mutex // Proteção para acesso simultâneo
+	localidade = obterEnv("SENSOR_LOCAL", "norte")
+	mu         sync.Mutex
+	sensorID   string // Identificador único da instância
 )
 
+func obterEnv(chave, padrao string) string {
+	if valor, existe := os.LookupEnv(chave); existe {
+		return valor
+	}
+	return padrao
+}
+
 func main() {
-	fmt.Println("Sensor 1: Pluviômetro ativo")
+	// Geração dinâmica do ID baseada no tempo atual para evitar duplicatas
+	rand.Seed(time.Now().UnixNano())
+	sensorID = fmt.Sprintf("pluv-%04d", rand.Intn(10000))
 
-	// Iniciamos a captura de teclado em segundo plano
+	fmt.Printf("Sensor 1 Ativo | ID: %s | Local: %s\n", sensorID, localidade)
+
 	go capturarTeclado()
-
-	// Iniciamos o envio contínuo de dados
 	enviarDados()
 }
 
-// capturarTeclado lê a entrada do terminal (os.Stdin)
 func capturarTeclado() {
 	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Println("Digite a nova localidade e pressione Enter:")
-
 	for scanner.Scan() {
 		novoLocal := strings.TrimSpace(scanner.Text())
 		if novoLocal != "" {
-			mu.Lock() // Bloqueia a variável para alteração segura
+			mu.Lock()
 			localidade = novoLocal
-			mu.Unlock() // Libera a variável
+			mu.Unlock()
 			fmt.Printf(">>> Localidade alterada para: %s\n", novoLocal)
 		}
 	}
 }
 
-// enviarDados realiza a transmissão UDP para o servidor
 func enviarDados() {
-	servidorAddr := "servidor:8080"
+	servidorAddr := obterEnv("SERVER_ADDR", "servidor:8080")
+
 	conn, err := net.Dial("udp", servidorAddr)
 	if err != nil {
 		fmt.Printf("Erro na conexão: %v\n", err)
@@ -54,18 +59,16 @@ func enviarDados() {
 	}
 	defer conn.Close()
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
 	for {
-		// Leitura segura da variável compartilhada
 		mu.Lock()
 		localAtual := localidade
 		mu.Unlock()
 
-		valor := r.Intn(101) // Simula índice de chuva
+		valor := rand.Intn(101)
 
-		// Criamos o mapa (JSON) para envio
+		// O mapa agora inclui o campo "id" para diferenciar instâncias
 		dados := map[string]interface{}{
+			"id":         sensorID,
 			"tipo":       "pluviometro",
 			"valor":      valor,
 			"localidade": localAtual,
@@ -74,7 +77,7 @@ func enviarDados() {
 		msgBytes, _ := json.Marshal(dados)
 		conn.Write(msgBytes)
 
-		fmt.Printf("Enviado: %s (%d) de %s\n", "pluviometro", valor, localAtual)
+		fmt.Printf("[%s] Enviado: %d mm em %s\n", sensorID, valor, localAtual)
 		time.Sleep(2 * time.Second)
 	}
 }
