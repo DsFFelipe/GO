@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"os" // Adicionado para acessar as variáveis de ambiente do sistema operacional
 	"strings"
 	"sync"
 )
@@ -22,15 +23,24 @@ func main() {
 }
 
 func recebeComandosTCP() {
-	// O servidor TCP escuta na porta 8080
-	ln, err := net.Listen("tcp", ":8080")
+	// Busca a porta configurada no ambiente do sistema
+	porta := os.Getenv("PORTA")
+
+	// Define a porta 8080 como padrão caso nenhuma seja fornecida
+	if porta == "" {
+		porta = "8080"
+	}
+
+	// O servidor TCP escuta na porta dinâmica especificada
+	// O formato exige dois pontos antes do número da porta (ex: ":8080")
+	ln, err := net.Listen("tcp", ":"+porta)
 	if err != nil {
-		fmt.Printf("Erro ao abrir socket TCP: %v\n", err)
+		fmt.Printf("Erro ao abrir socket TCP na porta %s: %v\n", porta, err)
 		return
 	}
 	defer ln.Close()
 
-	fmt.Println("Atuador aguardando comandos via TCP...")
+	fmt.Printf("Atuador aguardando comandos via TCP na porta %s...\n", porta)
 
 	for {
 		// Aceita novas conexões vindas do servidor

@@ -4,6 +4,7 @@ import (
 	"encoding/json" // Necessário para converter bytes em estruturas de dados
 	"fmt"
 	"net"
+	"os"
 	"sync"
 )
 
@@ -89,9 +90,18 @@ func recebecliente(ch chan<- []byte) {
 }
 
 func enviaatuadorTCP(ch <-chan []byte) {
+	// Busca o endereço do atuador no sistema operacional
+	atuadorAddr := os.Getenv("ATUADOR_ADDR")
+
+	// Define um valor padrão caso a variável não seja encontrada
+	if atuadorAddr == "" {
+		atuadorAddr = "atuador1:8080"
+	}
+
 	for {
 		msg := <-ch
-		conn, err := net.Dial("tcp", "atuador1:8080")
+		// Utiliza a variável em vez da string fixa
+		conn, err := net.Dial("tcp", atuadorAddr)
 		if err != nil {
 			continue
 		}
