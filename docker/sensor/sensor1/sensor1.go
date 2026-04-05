@@ -1,85 +1,80 @@
 package main
 
 import (
-	"bufio"         // Para leitura eficiente de strings no stdin
-	"encoding/json" // Para enviar os dados como mapa (JSON)
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net"
-	"os" // Para acessar a entrada padrão (os.Stdin)
+	"os"
 	"strings"
-	"sync" // Para sincronização de memória (Mutex)
+	"sync"
 	"time"
 )
 
-// Variáveis globais para controle de estado e concorrência
+// Variáveis globais para controle de estado
 var (
-	localidade = "norte"  // Valor inicial padrão
-	mu         sync.Mutex // Mutex para evitar condições de corrida
+	localidade = "norte"  // Valor inicial
+	mu         sync.Mutex // Proteção para acesso simultâneo
 )
 
 func main() {
-	fmt.Println("Sensor de Telemetria - Pluviômetro")
+	fmt.Println("Sensor 1: Pluviômetro ativo")
 
-	// Executa a função de leitura em uma thread separada (goroutine)
-	go inputComandos()
+	// Iniciamos a captura de teclado em segundo plano
+	go capturarTeclado()
 
-	enviaservidor()
+	// Iniciamos o envio contínuo de dados
+	enviarDados()
 }
 
-// Função para capturar comandos do teclado continuamente
-func inputComandos() {
+// capturarTeclado lê a entrada do terminal (os.Stdin)
+func capturarTeclado() {
 	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Println("Comando: Digite o novo local e aperte Enter para trocar.")
+	fmt.Println("Digite a nova localidade e pressione Enter:")
 
 	for scanner.Scan() {
-		texto := strings.TrimSpace(scanner.Text())
-		if texto != "" {
-			mu.Lock() // Bloqueia o acesso para escrita
-			localidade = texto
-			mu.Unlock() // Libera o acesso
-			fmt.Printf(">>> Localidade alterada para: %s\n", texto)
+		novoLocal := strings.TrimSpace(scanner.Text())
+		if novoLocal != "" {
+			mu.Lock() // Bloqueia a variável para alteração segura
+			localidade = novoLocal
+			mu.Unlock() // Libera a variável
+			fmt.Printf(">>> Localidade alterada para: %s\n", novoLocal)
 		}
 	}
 }
 
-func enviaservidor() {
+// enviarDados realiza a transmissão UDP para o servidor
+func enviarDados() {
 	servidorAddr := "servidor:8080"
-
 	conn, err := net.Dial("udp", servidorAddr)
 	if err != nil {
-		fmt.Printf("Erro na conexão UDP: %v\n", err)
+		fmt.Printf("Erro na conexão: %v\n", err)
 		return
 	}
 	defer conn.Close()
 
-	source := rand.NewSource(time.Now().UnixNano())
-	r := rand.New(source)
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	for {
-		valorAleatorio := r.Intn(101)
-
-		// Leitura segura da localidade atualizada
+		// Leitura segura da variável compartilhada
 		mu.Lock()
 		localAtual := localidade
 		mu.Unlock()
 
-		// Estrutura em mapa conforme solicitado anteriormente
-		mapaDados := map[string]interface{}{
+		valor := r.Intn(101) // Simula índice de chuva
+
+		// Criamos o mapa (JSON) para envio
+		dados := map[string]interface{}{
 			"tipo":       "pluviometro",
-			"valor":      valorAleatorio,
+			"valor":      valor,
 			"localidade": localAtual,
 		}
 
-		msgBytes, _ := json.Marshal(mapaDados)
+		msgBytes, _ := json.Marshal(dados)
+		conn.Write(msgBytes)
 
-		_, err = conn.Write(msgBytes)
-		if err != nil {
-			fmt.Printf("Erro ao transmitir dados: %v\n", err)
-		} else {
-			fmt.Printf("Enviado: [%s] %d unidades\n", localAtual, valorAleatorio)
-		}
-
+		fmt.Printf("Enviado: %s (%d) de %s\n", "pluviometro", valor, localAtual)
 		time.Sleep(2 * time.Second)
 	}
 }

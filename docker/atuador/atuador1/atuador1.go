@@ -1,88 +1,66 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
-	"strconv"
-	"strings"
-	"sync"
 )
 
-var (
-	barreiraFechada bool       // Estado da barreira
-	mu              sync.Mutex // Garante acesso seguro entre UDP e TCP
-)
-
-func main() {
-	fmt.Println("ATUADOR 1 (Barreira) - Iniciado")
-	fmt.Println("Regra: Se > 50, fecha. Só abre via comando manual do Cliente.")
-
-	go recebesensores() // Escuta telemetria (UDP)
-	go recebecliente()  // Escuta comandos (TCP)
-
-	select {}
+// Estrutura para espelhar o JSON do sensor
+type DadosSensor struct {
+	Tipo       string `json:"tipo"`
+	Valor      int    `json:"valor"`
+	Localidade string `json:"localidade"`
 }
 
-func recebesensores() {
-	addr, _ := net.ResolveUDPAddr("udp", ":8080")
-	conn, _ := net.ListenUDP("udp", addr)
+func main() {
+	recebeDadosUDP()
+}
+
+func recebeDadosUDP() {
+	addr, err := net.ResolveUDPAddr("udp", ":8080")
+	if err != nil {
+		fmt.Printf("Erro ao resolver endereço: %v\n", err)
+		return
+	}
+
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		fmt.Printf("Erro ao abrir socket UDP: %v\n", err)
+		return
+	}
 	defer conn.Close()
+
+	fmt.Println("Atuador aguardando dados via UDP...")
 
 	for {
 		buffer := make([]byte, 1024)
-		n, _, _ := conn.ReadFromUDP(buffer)
-		msg := strings.TrimSpace(string(buffer[:n]))
-
-		// Converte valor do sensor
-		valor, err := strconv.Atoi(msg)
+		n, _, err := conn.ReadFromUDP(buffer)
 		if err != nil {
+			fmt.Printf("Erro na leitura: %v\n", err)
 			continue
 		}
 
-		mu.Lock()
-		// Lógica: Se o sensor detectar perigo (>50), fecha a barreira
-		if valor > 50 && !barreiraFechada {
-			barreiraFechada = true
-			fmt.Printf("[ALERTA] Sensor em %d: FECHANDO BARREIRA POR SEGURANÇA.\n", valor)
-		} else if valor <= 50 {
-			// Se o valor baixar, ela NÃO abre sozinha conforme solicitado
-			fmt.Printf("[MONITORAMENTO] Valor: %d | Barreira continua: %s\n", valor, statusBarreira())
+		// Conversão de JSON para a Struct
+		var dados DadosSensor
+		err = json.Unmarshal(buffer[:n], &dados)
+		if err != nil {
+			fmt.Printf("Erro ao decodificar JSON: %v\n", err)
+			continue
 		}
-		mu.Unlock()
+
+		// Lógica de atuação baseada nos dados recebidos
+		processarDecisao(dados)
 	}
 }
 
-func recebecliente() {
-	ln, _ := net.Listen("tcp", ":8080")
-	defer ln.Close()
+func processarDecisao(d DadosSensor) {
+	fmt.Printf("\n[ATUADOR] Dados recebidos de: %s (%s)\n", d.Localidade, d.Tipo)
+	fmt.Printf("Índice de chuva: %d\n", d.Valor)
 
-	for {
-		conn, _ := ln.Accept()
-		buffer := make([]byte, 1024)
-		n, _ := conn.Read(buffer)
-		comando := strings.ToUpper(strings.TrimSpace(string(buffer[:n])))
-
-		mu.Lock()
-		if comando == "ABRIR" || comando == "OPEN" {
-			if barreiraFechada {
-				barreiraFechada = false
-				fmt.Println("[COMANDO CLIENTE] Barreira REABERTA manualmente.")
-				conn.Write([]byte("Sucesso: Barreira aberta.\n"))
-			} else {
-				conn.Write([]byte("Aviso: Barreira já estava aberta.\n"))
-			}
-		} else {
-			conn.Write([]byte("Erro: Comando não reconhecido.\n"))
-		}
-		mu.Unlock()
-		conn.Close()
+	if d.Valor > 70 {
+		fmt.Println("ALERTA: Risco de inundação! Fechando barreiras.")
+	} else {
+		fmt.Println("Status: Normal.")
 	}
-}
-
-// Função auxiliar para logs
-func statusBarreira() string {
-	if barreiraFechada {
-		return "FECHADA"
-	}
-	return "ABERTA"
 }
