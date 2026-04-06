@@ -1,0 +1,8 @@
+services:
+  sensor1:
+    build:
+      context: .
+      dockerfile: ss1.dockerfile
+    environment:
+      # O sensor precisa saber qual é o IP físico da máquina do Servidor
+      - SERVIDOR_ADDR=192.168.X.S:8080

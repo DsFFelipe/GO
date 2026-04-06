@@ -13,19 +13,18 @@ import (
 )
 
 var (
-	localidade = obterEnv("SENSOR_LOCAL", "norte")
+	localidade string
 	mu         sync.Mutex
 	sensorID   string // Identificador único da instância
 )
 
-func obterEnv(chave, padrao string) string {
-	if valor, existe := os.LookupEnv(chave); existe {
-		return valor
-	}
-	return padrao
-}
-
 func main() {
+	// 1. Busca a localidade inicial nas variáveis de ambiente
+	localidade = os.Getenv("SENSOR_LOCAL")
+	if localidade == "" {
+		localidade = "norte" // Valor padrão de fallback
+	}
+
 	// Geração dinâmica do ID baseada no tempo atual para evitar duplicatas
 	rand.Seed(time.Now().UnixNano())
 	sensorID = fmt.Sprintf("pluv-%04d", rand.Intn(10000))
@@ -50,7 +49,11 @@ func capturarTeclado() {
 }
 
 func enviarDados() {
-	servidorAddr := obterEnv("SERVER_ADDR", "servidor:8080")
+	// 2. Busca o endereço do servidor nas variáveis de ambiente
+	servidorAddr := os.Getenv("SERVIDOR_ADDR")
+	if servidorAddr == "" {
+		servidorAddr = "servidor:8080" // Valor padrão de fallback
+	}
 
 	conn, err := net.Dial("udp", servidorAddr)
 	if err != nil {
