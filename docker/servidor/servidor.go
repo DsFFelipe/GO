@@ -4,7 +4,7 @@ import (
 	"encoding/json" // Necessário para converter bytes em estruturas de dados
 	"fmt"
 	"net"
-	"os"
+	"os" // Pacote adicionado para acessar variáveis de ambiente
 	"sync"
 )
 
@@ -90,17 +90,15 @@ func recebecliente(ch chan<- []byte) {
 }
 
 func enviaatuadorTCP(ch <-chan []byte) {
-	// Busca o endereço do atuador no sistema operacional
+	// Busca o endereço do atuador nas variáveis de ambiente
 	atuadorAddr := os.Getenv("ATUADOR_ADDR")
-
-	// Define um valor padrão caso a variável não seja encontrada
 	if atuadorAddr == "" {
-		atuadorAddr = "atuador1:8080"
+		atuadorAddr = "atuador1:8080" // Valor padrão de fallback
 	}
 
 	for {
 		msg := <-ch
-		// Utiliza a variável em vez da string fixa
+		// Utiliza a variável resolvida no lugar de uma string fixa
 		conn, err := net.Dial("tcp", atuadorAddr)
 		if err != nil {
 			continue
@@ -111,7 +109,14 @@ func enviaatuadorTCP(ch <-chan []byte) {
 }
 
 func enviacliente(ch <-chan []byte) {
-	conn, err := net.Dial("udp", "cliente:8080")
+	// Busca o endereço do cliente nas variáveis de ambiente
+	clienteAddr := os.Getenv("CLIENTE_ADDR")
+	if clienteAddr == "" {
+		clienteAddr = "cliente:8080" // Valor padrão de fallback
+	}
+
+	// Utiliza a variável resolvida no lugar de uma string fixa
+	conn, err := net.Dial("udp", clienteAddr)
 	if err != nil {
 		return
 	}

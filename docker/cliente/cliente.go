@@ -105,9 +105,18 @@ func exibirSensores() {
 }
 
 func envia(ch <-chan string) {
+	// 1. Busca o endereço do servidor nas variáveis de ambiente
+	servidorAddr := os.Getenv("SERVIDOR_ADDR")
+
+	// 2. Define um valor padrão caso a variável não exista
+	if servidorAddr == "" {
+		servidorAddr = "servidor:8080"
+	}
+
 	for {
 		msg := <-ch
-		conn, err := net.Dial("tcp", "servidor:8080")
+		// 3. Utiliza a variável resolvida no lugar da string fixa
+		conn, err := net.Dial("tcp", servidorAddr)
 		if err != nil {
 			fmt.Printf("\nErro ao conectar ao servidor: %v\n", err)
 			continue
