@@ -4,6 +4,6 @@ WORKDIR /app
 
 COPY go.mod ./
 
-COPY docker/atuador/atuador1/atuador1.go ./main.go
+COPY atuador1.go ./main.go
 RUN go build -o service main.go
 CMD ["./service"]
