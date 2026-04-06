@@ -7,6 +7,6 @@ services:
       - "8080:8080/udp"
     environment:
       # O servidor precisa saber onde estão o Cliente e o Atuador na rede física
-      - CLIENTE_ADDR=192.168.15.71
+      - CLIENTE_ADDR=192.168.15.71:8080
 
-      - ATUADOR_ADDR=192.168.15.71
+      - ATUADOR_ADDR=192.168.15.71:8080
