@@ -3,5 +3,9 @@ services:
     build:
       context: .
       dockerfile: c.dockerfile
+    ports:
+      - "8080:8080/udp"  # <-- Permite que o host redirecione pacotes UDP para o contêiner
     environment:
       - SERVIDOR_ADDR=192.168.15.46:8080
+    stdin_open: true
+    tty: true
