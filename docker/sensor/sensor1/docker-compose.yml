@@ -5,4 +5,4 @@ services:
       dockerfile: ss1.dockerfile
     environment:
       # O sensor precisa saber qual é o IP físico da máquina do Servidor
-      - SERVIDOR_ADDR=192.168.15.46:8080
+      - SERVER_ADDR=192.168.15.46:8080
