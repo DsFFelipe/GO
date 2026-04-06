@@ -4,4 +4,4 @@ services:
       context: .
       dockerfile: c.dockerfile
     environment:
-      - SERVIDOR_ADDR=192.168.15.71:8080
+      - SERVIDOR_ADDR=192.168.15.46:8080
