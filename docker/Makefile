@@ -50,9 +50,12 @@ run-sensor1:
 # ==========================================
 # ATUADOR 1
 # ==========================================
-build-atuador1:
-	cd atuador/atuador1 && docker build -t img-atuador1 -f a1.dockerfile .
-
+run-atuador1:
+	docker run -d --rm \
+		-e SERVIDOR_ADDR=$(SERVER_IP):8082 \
+		--name container-atuador1 \
+		img-atuador1
+		
 run-atuador1:
 	docker run -d --rm \
 		-p 8080:8080/tcp \
