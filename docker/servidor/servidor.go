@@ -42,7 +42,7 @@ func main() {
 }
 
 func recebesensor(chCliente chan<- []byte, DadosSensor chan<- []byte) {
-	endr, err := net.ResolveUDPAddr("udp", ":8080")
+	endr, err := net.ResolveUDPAddr("udp", "0.0.0.0:8080")
 	if err != nil {
 		fmt.Printf("Erro no endereço UDP: %v\n", err)
 		return
