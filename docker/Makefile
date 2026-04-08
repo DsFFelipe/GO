@@ -7,6 +7,7 @@ SENSOR_LOCAL ?= "Padrao"
 # ==========================================
 # SERVIDOR
 # ==========================================
+
 build-servidor:
 	cd servidor && docker build -t img-servidor -f sv.dockerfile .
 
@@ -14,8 +15,8 @@ run-servidor:
 	docker run -d --rm \
 		-p 8080:8080/udp \
 		-p 8081:8080/tcp \
+		-p 8082:8082/tcp \
 		-e CLIENTE_ADDR=$(CLIENT_IP):8080 \
-		-e ATUADOR_ADDR=$(ACTUATOR_IP):8080 \
 		--name container-servidor \
 		img-servidor
 
@@ -50,15 +51,11 @@ run-sensor1:
 # ==========================================
 # ATUADOR 1
 # ==========================================
+build-atuador1:
+	cd atuador/atuador1 && docker build -t img-atuador1 -f a1.dockerfile .
+
 run-atuador1:
 	docker run -d --rm \
 		-e SERVIDOR_ADDR=$(SERVER_IP):8082 \
-		--name container-atuador1 \
-		img-atuador1
-		
-run-atuador1:
-	docker run -d --rm \
-		-p 8080:8080/tcp \
-		-e PORTA=8080 \
 		--name container-atuador1 \
 		img-atuador1
