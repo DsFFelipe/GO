@@ -16,8 +16,9 @@ type Dados struct {
 }
 
 var (
-	barreiraAberta bool       = true
-	mu             sync.Mutex // Garante que apenas uma rotina altere o estado por vez
+	// Pool de conexões TCP ativas com atuadores
+	atuadoresAtivos = make(map[net.Conn]bool)
+	muAtuadores     sync.Mutex 
 )
 
 func main() {
@@ -89,22 +90,29 @@ func recebecliente(ch chan<- []byte) {
 	}
 }
 
-func enviaatuadorTCP(ch <-chan []byte) {
-	// Busca o endereço do atuador nas variáveis de ambiente
-	atuadorAddr := os.Getenv("ATUADOR_ADDR")
-	if atuadorAddr == "" {
-		atuadorAddr = "atuador1:8080" // Valor padrão de fallback
+func recebeAtuadores() {
+	// Abre uma porta TCP exclusiva para os atuadores se conectarem
+	ln, err := net.Listen("tcp", ":8082") 
+	if err != nil {
+		fmt.Printf("Erro no Listen TCP para atuadores: %v\n", err)
+		return
 	}
+	defer ln.Close()
+
+	fmt.Println("Servidor aguardando conexões de Atuadores (TCP na porta 8082)...")
 
 	for {
-		msg := <-ch
-		// Utiliza a variável resolvida no lugar de uma string fixa
-		conn, err := net.Dial("tcp", atuadorAddr)
+		conn, err := ln.Accept()
 		if err != nil {
 			continue
 		}
-		conn.Write(msg)
-		conn.Close()
+		
+		// Quando um novo atuador se conecta, registra no pool
+		muAtuadores.Lock()
+		atuadoresAtivos[conn] = true
+		muAtuadores.Unlock()
+		
+		fmt.Printf("Novo atuador conectado: %s\n", conn.RemoteAddr().String())
 	}
 }
 
@@ -156,5 +164,25 @@ func processarDecisao(chSensor <-chan []byte, chAtuador chan<- []byte) {
 
 		fmt.Printf("Estado da barreira: Aberta = %v\n", barreiraAberta)
 		mu.Unlock()
+	}
+}
+
+func enviaComandosParaAtuadores(ch <-chan []byte) {
+	for {
+		msg := <-ch
+		
+		muAtuadores.Lock()
+		// Itera sobre todos os atuadores registrados
+		for conn := range atuadoresAtivos {
+			_, err := conn.Write(msg)
+			if err != nil {
+				// Se a escrita falhar, o atuador caiu ou foi desligado.
+				// Remove a conexão inativa do pool para evitar vazamento de memória.
+				fmt.Printf("Atuador desconectado: %s\n", conn.RemoteAddr().String())
+				conn.Close()
+				delete(atuadoresAtivos, conn)
+			}
+		}
+		muAtuadores.Unlock()
 	}
 }

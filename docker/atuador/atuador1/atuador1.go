@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
-	"os" // Adicionado para acessar as variáveis de ambiente do sistema operacional
+	"os"
 	"strings"
 	"sync"
 )
@@ -11,72 +11,71 @@ import (
 // Estado global da barreira e controle de concorrência
 var (
 	barreiraAberta bool       = true
-	mu             sync.Mutex // Garante que apenas uma rotina altere o estado por vez
+	mu             sync.Mutex // Garante acesso seguro à variável de estado
 )
 
 func main() {
-	// Inicia a escuta de comandos via TCP em uma goroutine
-	go recebeComandosTCP()
-
-	// Impede que a função main termine, mantendo o container ativo
-	select {}
-}
-
-func recebeComandosTCP() {
-	// Busca a porta configurada no ambiente do sistema
-	porta := os.Getenv("PORTA")
-
-	// Define a porta 8080 como padrão caso nenhuma seja fornecida
-	if porta == "" {
-		porta = "8080"
+	// O atuador agora atua como cliente TCP e precisa do IP do Servidor
+	servidorAddr := os.Getenv("SERVIDOR_ADDR")
+	if servidorAddr == "" {
+		servidorAddr = "192.168.0.71:8082" // IP do Servidor e porta dedicada a atuadores
 	}
 
-	// O servidor TCP escuta na porta dinâmica especificada
-	// O formato exige dois pontos antes do número da porta (ex: ":8080")
-	ln, err := net.Listen("tcp", ":"+porta)
+	fmt.Printf("Atuador conectando ao Servidor em %s...\n", servidorAddr)
+
+	// Inicia a conexão com o servidor (O handshake TCP ocorre aqui)
+	conn, err := net.Dial("tcp", servidorAddr)
 	if err != nil {
-		fmt.Printf("Erro ao abrir socket TCP na porta %s: %v\n", porta, err)
+		fmt.Printf("Falha ao conectar ao servidor: %v\n", err)
 		return
 	}
-	defer ln.Close()
-
-	fmt.Printf("Atuador aguardando comandos via TCP na porta %s...\n", porta)
-
-	for {
-		// Aceita novas conexões vindas do servidor
-		conn, err := ln.Accept()
-		if err != nil {
-			fmt.Printf("Erro ao aceitar conexão TCP: %v\n", err)
-			continue
-		}
-
-		// Processa cada conexão em uma goroutine separada
-		go handleTCPConnection(conn)
-	}
-}
-
-func handleTCPConnection(conn net.Conn) {
 	defer conn.Close()
 
-	// Buffer para leitura dos dados enviados pelo servidor
+	fmt.Println("Conectado! Aguardando comandos do broker...")
+
+	// Buffer para armazenar os bytes recebidos via rede
 	buffer := make([]byte, 1024)
-	n, err := conn.Read(buffer)
-	if err != nil {
-		return
+	
+	// Loop infinito bloqueante. Ele pausa na linha conn.Read até que pacotes cheguem.
+	for {
+		n, err := conn.Read(buffer)
+		if err != nil {
+			fmt.Println("Conexão com o servidor perdida (Broker desconectado).")
+			break // Encerra o loop e o programa se a conexão cair
+		}
+
+		// Limpa os bytes recebidos e converte para string
+		comando := strings.ToUpper(strings.TrimSpace(string(buffer[:n])))
+		executarComando(comando) 
 	}
+}
 
-	// Converte bytes para string, remove espaços e coloca em maiúsculas
-	comando := strings.ToUpper(strings.TrimSpace(string(buffer[:n])))
-
+// Função que isola a lógica de negócio estrutural do atuador
+func executarComando(comando string) {
+	// Trava o Mutex. Em arquiteturas concorrentes, isso impede condições de corrida 
+	// ao ler e escrever na variável global barreiraAberta.
 	mu.Lock()
+	defer mu.Unlock() // Garante que o desbloqueio ocorra quando a função retornar
+
 	if comando == "ABRIR" {
-		barreiraAberta = true
-		fmt.Println("[SERVIDOR] Comando recebido: Abrindo barreira.")
+		if barreiraAberta {
+			fmt.Println("[SERVIDOR] Comando recebido: ABRIR. A barreira já está aberta.")
+		} else {
+			barreiraAberta = true
+			fmt.Println("[SERVIDOR] Comando recebido: Abrindo barreira.")
+		}
 	} else if comando == "FECHAR" {
-		barreiraAberta = false
-		fmt.Println("[SERVIDOR] Comando recebido: Fechando barreira.")
+		if !barreiraAberta {
+			fmt.Println("[SERVIDOR] Comando recebido: FECHAR. A barreira já está fechada.")
+		} else {
+			barreiraAberta = false
+			fmt.Println("[SERVIDOR] Comando recebido: Fechando barreira.")
+		}
+	} else {
+		// Proteção contra payloads inesperados no socket TCP
+		fmt.Printf("[AVISO] Comando desconhecido ignorado: %s\n", comando)
+		return 
 	}
 
 	fmt.Printf("Estado atual da barreira: Aberta = %v\n", barreiraAberta)
-	mu.Unlock()
 }
