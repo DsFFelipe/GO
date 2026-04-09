@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -118,8 +119,11 @@ func renderLoop() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		// Sequência ANSI para limpar a tela e resetar o cursor
-		fmt.Print("\033[H\033[2J")
+		// Executa o comando nativo do Linux (Alpine) para limpar o terminal
+		cmd := exec.Command("clear")
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+
 		fmt.Println("=== MONITOR DE TELEMETRIA EM TEMPO REAL ===")
 
 		// Renderiza os Sensores

@@ -30,8 +30,8 @@ func main() {
 	fmt.Printf("Matriz de Temperatura Nuclear Ativa | ID: %s\n", sensorID)
 
 	for {
-		// Simula as temperaturas do líquido de refrigeração do reator (280°C a 330°C)
-		tempCelsius := 280 + rand.Intn(51)
+		// Simula as temperaturas do líquido de refrigeração do reator (350C a 1050C)
+		tempCelsius := 350 + rand.Intn(700)
 
 		// Estrutura os dados removendo completamente a localidade
 		dados := map[string]interface{}{

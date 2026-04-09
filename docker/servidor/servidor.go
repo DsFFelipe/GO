@@ -169,11 +169,11 @@ func processarDecisao(chSensor <-chan []byte, chAtuador chan<- ComandoAtuador) {
 			}
 
 		} else if d.Tipo == "temperatura_reator" {
-			if d.Valor > 1000 && !alarmeLigado {
+			if d.Valor > 600 && !alarmeLigado {
 				alarmeLigado = true
 				fmt.Println("ALERTA CRÍTICO: Temperatura do reator excedeu o limite! Acionando alarme.")
 				chAtuador <- ComandoAtuador{Alvo: "ALARME", Acao: "LIGAR_ALARME"}
-			} else if d.Valor <= 100 && alarmeLigado {
+			} else if d.Valor <= 500 && alarmeLigado {
 				alarmeLigado = false
 				fmt.Println("STATUS: Temperatura do reator estabilizada. Desligando alarme.")
 				chAtuador <- ComandoAtuador{Alvo: "ALARME", Acao: "DESLIGAR_ALARME"}
@@ -216,24 +216,26 @@ func recebecliente(chAtuador chan<- ComandoAtuador) {
 		n, err := conn.Read(buffer)
 
 		if err == nil {
-			// Limpa a string recebida do cliente
 			comando := strings.ToUpper(strings.TrimSpace(string(buffer[:n])))
 			fmt.Printf("Comando manual do cliente recebido: %s\n", comando)
 
-			// Classifica e roteia o comando de acordo com o protocolo de identificação
+			mu.Lock() // Lock the state just like processarDecisao does
 			if comando == "ABRIR" || comando == "FECHAR" {
+				barreiraAberta = (comando == "ABRIR")
 				chAtuador <- ComandoAtuador{Alvo: "BARREIRA", Acao: comando}
 			} else if comando == "LIGAR_ALARME" || comando == "DESLIGAR_ALARME" {
+				alarmeLigado = (comando == "LIGAR_ALARME")
 				chAtuador <- ComandoAtuador{Alvo: "ALARME", Acao: comando}
 			} else {
 				fmt.Printf("[AVISO] Comando de cliente não reconhecido pelo roteador: %s\n", comando)
 			}
+			mu.Unlock()
 		}
 
-		// O cliente.go foi programado para abrir e fechar a conexão a cada envio
 		conn.Close()
 	}
-}
+
+} // O cliente.go foi programado para abrir e fechar a conexão a cada envio
 
 func enviacliente(ch <-chan []byte) {
 	clienteAddr := os.Getenv("CLIENTE_ADDR")
