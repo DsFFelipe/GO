@@ -135,7 +135,7 @@ func recebecliente(ch chan<- []byte) {
 func enviacliente(ch <-chan []byte) {
 	clienteAddr := os.Getenv("CLIENTE_ADDR")
 	if clienteAddr == "" {
-		clienteAddr = "192.168.0.118:8080"
+		clienteAddr = "192.168.0.118:8081"
 	}
 
 	conn, err := net.Dial("udp", clienteAddr)

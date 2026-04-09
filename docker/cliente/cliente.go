@@ -35,7 +35,7 @@ func main() {
 }
 
 func recebe() {
-	endr, err := net.ResolveUDPAddr("udp", ":8080")
+	endr, err := net.ResolveUDPAddr("udp", ":8083")
 	if err != nil {
 		return
 	}

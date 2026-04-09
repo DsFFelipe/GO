@@ -1,7 +1,7 @@
-# Default LAN IPs (Override these in the terminal when running the commands)
-SERVER_IP ?= 192.168.0.71
-CLIENT_IP ?= 192.168.0.118
-ACTUATOR_IP ?= 192.168.0.118
+# LAN padrão
+SERVER_IP ?= 192.168.15.71
+CLIENT_IP ?= 192.168.15.71
+ACTUATOR_IP ?= 192.168.15.71
 SENSOR_LOCAL ?= "Padrao"
 
 # ==========================================
@@ -16,7 +16,7 @@ run-servidor:
 		-p 8080:8080/udp \
 		-p 8081:8080/tcp \
 		-p 8082:8082/tcp \
-		-e CLIENTE_ADDR=$(CLIENT_IP):8080 \
+		-e CLIENTE_ADDR=$(CLIENT_IP):8083 \
 		--name container-servidor \
 		img-servidor
 
@@ -26,10 +26,10 @@ run-servidor:
 build-cliente:
 	cd cliente && docker build -t img-cliente -f c.dockerfile .
 
-# Requires -it (interactive TTY) to capture terminal input for the client menu
+# TTY
 run-cliente:
 	docker run -it --rm \
-		-p 8080:8080/udp \
+		-p 8083:8083/udp \
 		-e SERVIDOR_ADDR=$(SERVER_IP):8081 \
 		--name container-cliente \
 		img-cliente
@@ -40,7 +40,7 @@ run-cliente:
 build-sensor1:
 	cd sensor/sensor1 && docker build -t img-sensor1 -f ss1.dockerfile .
 
-# Requires -it to capture terminal input for changing the locality
+# - it
 run-sensor1:
 	docker run -it --rm \
 		-e SERVIDOR_ADDR=$(SERVER_IP):8080 \
@@ -51,11 +51,11 @@ run-sensor1:
 # ==========================================
 # SENSOR 2 (Temperatura do Reator Nuclear)
 # ==========================================
-build-sensor-reator:
-	cd sensor/sensor_reator && docker build -t img-sensor-reator -f sr.dockerfile .
+build-sensor2:
+	cd sensor/sensor2 && docker build -t img-sensor2 -f ss2.dockerfile .
 
 # Executa o sensor do reator em modo "detached" (-d)
-run-sensor-reator:
+run-sensor2:
 	docker run -d --rm \
 		-e SERVIDOR_ADDR=$(SERVER_IP):8080 \
 		--name container-sensor2\

@@ -81,6 +81,6 @@ func enviarDados() {
 		conn.Write(msgBytes)
 
 		fmt.Printf("[%s] Enviado: %d mm em %s\n", sensorID, valor, localAtual)
-		time.Sleep(2 * time.Second)
+		time.Sleep(3 * time.Second)
 	}
 }
