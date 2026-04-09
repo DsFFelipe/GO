@@ -9,16 +9,18 @@ import (
 )
 
 type Dados struct {
+	ID         string `json:"id"`
 	Tipo       string `json:"tipo"`
 	Valor      int    `json:"valor"`
-	Localidade string `json:"localidade"`
+	Localidade string `json:"localidade"` // Defaults to "" if the JSON omits it
 }
 
 // VARIÁVEIS GLOBAIS
 var (
 	// Estado lógico da decisão automática
-	barreiraAberta bool       = true
-	mu             sync.Mutex 
+	barreiraAberta bool = true  //controle de estado para a barreira
+	alarmeLigado   bool = false //controle de estado para o alarme
+	mu             sync.Mutex
 
 	// Pool de conexões dinâmicas para os atuadores
 	atuadoresAtivos = make(map[net.Conn]bool)
@@ -157,17 +159,38 @@ func processarDecisao(chSensor <-chan []byte, chAtuador chan<- []byte) {
 		}
 
 		mu.Lock()
-		fmt.Printf("\n[TELEMETRIA] %s em %s: %d\n", d.Tipo, d.Localidade, d.Valor)
 
-		if d.Valor > 70 && barreiraAberta {
-			barreiraAberta = false
-			fmt.Println("ALERTA: Nível crítico! Fechando barreira automaticamente.")
-			chAtuador <- []byte("FECHAR")
-		} else if d.Valor < 50 && !barreiraAberta {
-			barreiraAberta = true
-			fmt.Println("STATUS: Nível seguro. Abrindo barreira automaticamente.")
-			chAtuador <- []byte("ABRIR")
+		if d.Tipo == "pluviometro" {
+			fmt.Printf("\n[TELEMETRIA] %s (ID: %s) em %s: %d mm\n", d.Tipo, d.ID, d.Localidade, d.Valor)
+
+			if d.Valor > 70 && barreiraAberta {
+				barreiraAberta = false
+				fmt.Println("ALERTA: Nível crítico de chuva! Fechando barreira.")
+				chAtuador <- []byte("FECHAR")
+			} else if d.Valor < 50 && !barreiraAberta {
+				barreiraAberta = true
+				fmt.Println("STATUS: Nível seguro. Abrindo barreira.")
+				chAtuador <- []byte("ABRIR")
+			}
+
+		} else if d.Tipo == "temperatura_reator" {
+			fmt.Printf("\n[TELEMETRIA] %s (ID: %s): %d°C\n", d.Tipo, d.ID, d.Valor)
+
+			// Nova lógica de atuação para o alarme térmico
+			if d.Valor > 320 && !alarmeLigado {
+				alarmeLigado = true
+				fmt.Println("ALERTA CRÍTICO: Temperatura do reator excedeu o limite! Acionando alarme.")
+				chAtuador <- []byte("LIGAR_ALARME")
+			} else if d.Valor <= 320 && alarmeLigado {
+				alarmeLigado = false
+				fmt.Println("STATUS: Temperatura do reator estabilizada. Desligando alarme.")
+				chAtuador <- []byte("DESLIGAR_ALARME")
+			}
+
+		} else {
+			fmt.Printf("\n[AVISO] Tipo de sensor desconhecido: %s\n", d.Tipo)
 		}
+
 		mu.Unlock()
 	}
 }
