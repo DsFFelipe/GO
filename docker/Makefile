@@ -49,6 +49,19 @@ run-sensor1:
 		img-sensor1
 
 # ==========================================
+# SENSOR 2 (Temperatura do Reator Nuclear)
+# ==========================================
+build-sensor-reator:
+	cd sensor/sensor_reator && docker build -t img-sensor-reator -f sr.dockerfile .
+
+# Executa o sensor do reator em modo "detached" (-d)
+run-sensor-reator:
+	docker run -d --rm \
+		-e SERVIDOR_ADDR=$(SERVER_IP):8080 \
+		--name container-sensor2\
+		img-sensor2
+
+# ==========================================
 # ATUADOR 1
 # ==========================================
 build-atuador1:
@@ -59,3 +72,4 @@ run-atuador1:
 		-e SERVIDOR_ADDR=$(SERVER_IP):8082 \
 		--name container-atuador1 \
 		img-atuador1
+
