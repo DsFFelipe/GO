@@ -1,51 +1,56 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"time"
 )
 
-const (
-	SERVER_ADDR = "servidor:8081" // Endereço do Servidor Central
-	SENSOR_TYPE = "UV_SENSOR"     // Identificador do tipo
-)
-
 func main() {
-	fmt.Printf("[%s] Iniciando telemetria...\n", SENSOR_TYPE)
-
-	// Resolve o endereço do servidor
-	addr, err := net.ResolveUDPAddr("udp", SERVER_ADDR)
-	if err != nil {
-		fmt.Printf("Erro ao resolver endereço: %v\n", err)
-		return
+	// Procura o endereço do servidor de telemetria UDP (porto 8080)
+	servidorAddr := os.Getenv("SERVIDOR_ADDR")
+	if servidorAddr == "" {
+		servidorAddr = "servidor:8080"
 	}
 
-	// Cria a conexão UDP
-	conn, err := net.DialUDP("udp", nil, addr)
+	conn, err := net.Dial("udp", servidorAddr)
 	if err != nil {
-		fmt.Printf("Erro ao conectar via UDP: %v\n", err)
+		fmt.Printf("Falha crítica ao conectar à matriz de telemetria: %v\n", err)
 		return
 	}
 	defer conn.Close()
 
-	// Loop de envio de dados
+	// Inicializa o gerador aleatório para IDs únicos e flutuações de temperatura
+	rand.Seed(time.Now().UnixNano())
+	sensorID := fmt.Sprintf("reator-temp-%04d", rand.Intn(10000))
+
+	fmt.Printf("Matriz de Temperatura Nuclear Ativa | ID: %s\n", sensorID)
+
 	for {
-		// Gera valor inteiro de Radiação UV (Escala 0 a 15 para cobrir extremos)
-		valorUV := rand.Intn(16)
+		// Simula as temperaturas do líquido de refrigeração do reator (350C a 1050C)
+		tempCelsius := 350 + rand.Intn(700)
 
-		// Formata a mensagem: "TIPO:VALOR" para facilitar o parsing no servidor
-		msg := fmt.Sprintf("%s:%d", SENSOR_TYPE, valorUV)
-
-		_, err := conn.Write([]byte(msg))
-		if err != nil {
-			fmt.Printf("Erro ao enviar dado: %v\n", err)
-		} else {
-			fmt.Printf("[SENT] %s -> Valor: %d\n", SENSOR_TYPE, valorUV)
+		// Estrutura os dados removendo completamente a localidade
+		dados := map[string]interface{}{
+			"id":    sensorID,
+			"tipo":  "temperatura_reator",
+			"valor": tempCelsius,
 		}
 
-		// Intervalo de leitura (ex: 3 segundos para não sobrecarregar o log)
+		msgBytes, _ := json.Marshal(dados)
+		conn.Write(msgBytes)
+
+		// Monitorização local na consola
+		if tempCelsius > 320 {
+			fmt.Printf("[ALERTA] Temperatura Elevada Detetada: %d°C\n", tempCelsius)
+		} else {
+			fmt.Printf("[%s] Enviado: %d°C\n", sensorID, tempCelsius)
+		}
+
+		// Taxa de envio rápida para monitorização de infraestrutura crítica (1 segundo)
 		time.Sleep(3 * time.Second)
 	}
 }

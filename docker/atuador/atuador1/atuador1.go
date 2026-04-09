@@ -1,82 +1,80 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
-	"os" // Adicionado para acessar as variáveis de ambiente do sistema operacional
+	"os"
 	"strings"
 	"sync"
 )
 
-// Estado global da barreira e controle de concorrência
 var (
-	barreiraAberta bool       = true
-	mu             sync.Mutex // Garante que apenas uma rotina altere o estado por vez
+	barreiraAberta bool = true
+	mu             sync.Mutex
 )
 
 func main() {
-	// Inicia a escuta de comandos via TCP em uma goroutine
-	go recebeComandosTCP()
-
-	// Impede que a função main termine, mantendo o container ativo
-	select {}
-}
-
-func recebeComandosTCP() {
-	// Busca a porta configurada no ambiente do sistema
-	porta := os.Getenv("PORTA")
-
-	// Define a porta 8080 como padrão caso nenhuma seja fornecida
-	if porta == "" {
-		porta = "8080"
+	servidorAddr := os.Getenv("SERVIDOR_ADDR")
+	if servidorAddr == "" {
+		servidorAddr = "192.168.0.71:8082"
 	}
 
-	// O servidor TCP escuta na porta dinâmica especificada
-	// O formato exige dois pontos antes do número da porta (ex: ":8080")
-	ln, err := net.Listen("tcp", ":"+porta)
+	fmt.Printf("Atuador conectando ao Servidor em %s...\n", servidorAddr)
+
+	conn, err := net.Dial("tcp", servidorAddr)
 	if err != nil {
-		fmt.Printf("Erro ao abrir socket TCP na porta %s: %v\n", porta, err)
+		fmt.Printf("Falha ao conectar: %v\n", err)
 		return
 	}
-	defer ln.Close()
-
-	fmt.Printf("Atuador aguardando comandos via TCP na porta %s...\n", porta)
-
-	for {
-		// Aceita novas conexões vindas do servidor
-		conn, err := ln.Accept()
-		if err != nil {
-			fmt.Printf("Erro ao aceitar conexão TCP: %v\n", err)
-			continue
-		}
-
-		// Processa cada conexão em uma goroutine separada
-		go handleTCPConnection(conn)
-	}
-}
-
-func handleTCPConnection(conn net.Conn) {
 	defer conn.Close()
 
-	// Buffer para leitura dos dados enviados pelo servidor
+	// Adicionado o delimitador \n para a leitura em buffer do servidor
+	conn.Write([]byte("REGISTRO:BARREIRA\n"))
+	fmt.Println("Registrado! Aguardando comandos...")
+
+	// Envia o estado inicial assim que conecta
+	enviarEstado(conn)
+
 	buffer := make([]byte, 1024)
-	n, err := conn.Read(buffer)
-	if err != nil {
-		return
+	for {
+		n, err := conn.Read(buffer)
+		if err != nil {
+			fmt.Println("Conexão com o servidor perdida.")
+			break
+		}
+		comando := strings.ToUpper(strings.TrimSpace(string(buffer[:n])))
+		executarComando(comando, conn)
 	}
+}
 
-	// Converte bytes para string, remove espaços e coloca em maiúsculas
-	comando := strings.ToUpper(strings.TrimSpace(string(buffer[:n])))
-
+func executarComando(comando string, conn net.Conn) {
 	mu.Lock()
 	if comando == "ABRIR" {
 		barreiraAberta = true
-		fmt.Println("[SERVIDOR] Comando recebido: Abrindo barreira.")
 	} else if comando == "FECHAR" {
 		barreiraAberta = false
-		fmt.Println("[SERVIDOR] Comando recebido: Fechando barreira.")
+	} else {
+		fmt.Printf("[AVISO] Comando desconhecido: %s\n", comando)
+		mu.Unlock()
+		return
 	}
-
 	fmt.Printf("Estado atual da barreira: Aberta = %v\n", barreiraAberta)
 	mu.Unlock()
+
+	// Retorna o feedback do estado atualizado para o servidor
+	enviarEstado(conn)
+}
+
+func enviarEstado(conn net.Conn) {
+	mu.Lock()
+	estado := barreiraAberta
+	mu.Unlock()
+
+	dados := map[string]interface{}{
+		"id":     "BARREIRA",
+		"ligado": estado,
+	}
+	b, _ := json.Marshal(dados)
+	conn.Write(append(b, '\n')) // Delimitador de stream TCP
 }

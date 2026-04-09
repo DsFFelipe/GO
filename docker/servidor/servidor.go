@@ -1,160 +1,252 @@
 package main
 
 import (
-	"encoding/json" // Necessário para converter bytes em estruturas de dados
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"net"
-	"os" // Pacote adicionado para acessar variáveis de ambiente
+	"os"
+	"strings"
 	"sync"
 )
 
-// Estrutura para interpretar os dados vindos do sensor
 type Dados struct {
+	ID         string `json:"id"`
 	Tipo       string `json:"tipo"`
 	Valor      int    `json:"valor"`
 	Localidade string `json:"localidade"`
 }
 
+// Estrutura para o roteamento interno de comandos
+type ComandoAtuador struct {
+	Alvo string // "BARREIRA" ou "ALARME"
+	Acao string // "ABRIR", "LIGAR_ALARME", etc.
+}
+
 var (
-	barreiraAberta bool       = true
-	mu             sync.Mutex // Garante que apenas uma rotina altere o estado por vez
+	barreiraAberta bool = true
+	alarmeLigado   bool = false
+	mu             sync.Mutex
+
+	// Tabela de roteamento: mapeia a conexão de rede ao TIPO do atuador
+	atuadoresAtivos = make(map[net.Conn]string)
+	muAtuadores     sync.Mutex
 )
 
 func main() {
-	// Canais para comunicação entre goroutines
 	sensorParaClienteChan := make(chan []byte)
 	DadosSensor := make(chan []byte)
-	clienteChan := make(chan []byte)
+	chAtuadores := make(chan ComandoAtuador)
 
-	// Inicia os fluxos de recebimento e envio
-	go recebecliente(clienteChan)
-	// Ajustado para usar o canal DadosSensor declarado acima
+	// Novo canal para o pipeline de estados dos atuadores
+	estadoAtuadorChan := make(chan []byte)
+
+	go recebecliente(chAtuadores)
 	go recebesensor(sensorParaClienteChan, DadosSensor)
+	go enviacliente(sensorParaClienteChan) // Mantém envio UDP de sensores
+	go processarDecisao(DadosSensor, chAtuadores)
 
-	go enviacliente(sensorParaClienteChan)
+	go recebeAtuadores(estadoAtuadorChan)
+	go enviaComandosParaAtuadores(chAtuadores)
+	go enviaEstadoTCP(estadoAtuadorChan) // Novo envio TCP de estados
 
-	// Inicia a lógica de decisão automática
-	go processarDecisao(DadosSensor, clienteChan)
-
-	go enviaatuadorTCP(clienteChan)
-
-	select {} // Mantém o servidor vivo
+	select {}
 }
 
-func recebesensor(chCliente chan<- []byte, DadosSensor chan<- []byte) {
-	endr, err := net.ResolveUDPAddr("udp", ":8080")
+func recebeAtuadores(chEstado chan<- []byte) {
+	ln, err := net.Listen("tcp", ":8082")
 	if err != nil {
-		fmt.Printf("Erro no endereço UDP: %v\n", err)
 		return
 	}
-	conn, err := net.ListenUDP("udp", endr)
-	if err != nil {
-		fmt.Printf("Erro ao abrir porta UDP: %v\n", err)
-		return
-	}
-	defer conn.Close()
+	defer ln.Close()
 
-	fmt.Println("Servidor aguardando dados do Sensor (UDP)...")
-
-	for {
-		buffer := make([]byte, 1024)
-		n, _, err := conn.ReadFromUDP(buffer)
-		if err != nil {
-			fmt.Printf("Erro na leitura UDP: %v\n", err)
-			continue
-		}
-
-		// Repassa os bytes brutos para os canais de envio
-		chCliente <- buffer[:n]
-		DadosSensor <- buffer[:n]
-	}
-}
-
-func recebecliente(ch chan<- []byte) {
-	ln, err := net.Listen("tcp", ":8080")
-	if err != nil {
-		fmt.Printf("Erro no Listen TCP: %v\n", err)
-		return
-	}
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			continue
 		}
-		buffer := make([]byte, 1024)
-		n, _ := conn.Read(buffer)
-		ch <- buffer[:n]
-		fmt.Printf("Comando do cliente recebido: %s\n", string(buffer[:n]))
-		conn.Close()
+
+		go func(c net.Conn) {
+			reader := bufio.NewReader(c)
+
+			// Lê o handshake até o delimitador \n
+			linha, err := reader.ReadString('\n')
+			if err != nil {
+				c.Close()
+				return
+			}
+
+			identificacao := strings.TrimSpace(linha)
+			tipo := "DESCONHECIDO"
+			if identificacao == "REGISTRO:BARREIRA" {
+				tipo = "BARREIRA"
+			} else if identificacao == "REGISTRO:ALARME" {
+				tipo = "ALARME"
+			}
+
+			muAtuadores.Lock()
+			atuadoresAtivos[c] = tipo
+			muAtuadores.Unlock()
+
+			// Loop contínuo para ouvir os estados deste atuador específico
+			for {
+				pacoteEstado, err := reader.ReadBytes('\n')
+				if err != nil {
+					c.Close()
+					muAtuadores.Lock()
+					delete(atuadoresAtivos, c)
+					muAtuadores.Unlock()
+					break
+				}
+				chEstado <- pacoteEstado
+			}
+		}(conn)
 	}
 }
 
-func enviaatuadorTCP(ch <-chan []byte) {
-	// Busca o endereço do atuador nas variáveis de ambiente
-	atuadorAddr := os.Getenv("ATUADOR_ADDR")
-	if atuadorAddr == "" {
-		atuadorAddr = "atuador1:8080" // Valor padrão de fallback
+// Estabelece conexão TCP pontual para garantir a entrega do estado crítico
+func enviaEstadoTCP(ch <-chan []byte) {
+	clienteTCP := os.Getenv("CLIENTE_TCP_ADDR")
+	if clienteTCP == "" {
+		clienteTCP = "192.168.0.118:8084"
 	}
 
-	for {
-		msg := <-ch
-		// Utiliza a variável resolvida no lugar de uma string fixa
-		conn, err := net.Dial("tcp", atuadorAddr)
-		if err != nil {
-			continue
+	for msg := range ch {
+		conn, err := net.Dial("tcp", clienteTCP)
+		if err == nil {
+			conn.Write(msg)
+			conn.Close() // Fecha após envio (comportamento de webhook/push)
 		}
-		conn.Write(msg)
-		conn.Close()
 	}
 }
 
-func enviacliente(ch <-chan []byte) {
-	// Busca o endereço do cliente nas variáveis de ambiente
-	clienteAddr := os.Getenv("CLIENTE_ADDR")
-	if clienteAddr == "" {
-		clienteAddr = "cliente:8080" // Valor padrão de fallback
-	}
+// ==========================================
+// BROKER DE ATUADORES COM ROTEAMENTO (TCP: 8082)
+// ==========================================
 
-	// Utiliza a variável resolvida no lugar de uma string fixa
-	conn, err := net.Dial("udp", clienteAddr)
-	if err != nil {
-		return
-	}
-	for {
-		msg := <-ch
-		conn.Write(msg)
+func enviaComandosParaAtuadores(ch <-chan ComandoAtuador) {
+	for comando := range ch {
+		muAtuadores.Lock()
+		for conn, tipo := range atuadoresAtivos {
+			// Filtro de Roteamento: Só envia se o alvo bater com o tipo registrado
+			if tipo == comando.Alvo {
+				_, err := conn.Write([]byte(comando.Acao))
+				if err != nil {
+					fmt.Printf("Atuador desconectado: %s\n", conn.RemoteAddr().String())
+					conn.Close()
+					delete(atuadoresAtivos, conn)
+				}
+			}
+		}
+		muAtuadores.Unlock()
 	}
 }
 
-// Lógica de processamento e decisão automática
-func processarDecisao(chSensor <-chan []byte, chAtuador chan<- []byte) {
+// ==========================================
+// LÓGICA DE SENSORES
+// ==========================================
+func processarDecisao(chSensor <-chan []byte, chAtuador chan<- ComandoAtuador) {
 	for {
-		// Recebe os bytes do canal do sensor
 		rawBytes := <-chSensor
 
 		var d Dados
-		// Converte JSON em estrutura Go
 		err := json.Unmarshal(rawBytes, &d)
 		if err != nil {
-			fmt.Println("Erro ao decodificar JSON:", err)
 			continue
 		}
 
 		mu.Lock()
-		fmt.Printf("\n[TELEMETRIA] %s em %s: %d\n", d.Tipo, d.Localidade, d.Valor)
 
-		// Lógica automática: envia comandos de texto para o atuador via canal
-		if d.Valor > 70 && barreiraAberta {
-			barreiraAberta = false
-			fmt.Println("ALERTA: Nível crítico! Fechando barreira automaticamente.")
-			chAtuador <- []byte("FECHAR")
-		} else if d.Valor < 50 && !barreiraAberta {
-			barreiraAberta = true
-			fmt.Println("STATUS: Nível seguro. Abrindo barreira automaticamente.")
-			chAtuador <- []byte("ABRIR")
+		if d.Tipo == "pluviometro" {
+			if d.Valor > 95 && barreiraAberta {
+				barreiraAberta = false
+				fmt.Println("ALERTA: Nível crítico de chuva! Fechando barreira.")
+				chAtuador <- ComandoAtuador{Alvo: "BARREIRA", Acao: "FECHAR"}
+			} else if d.Valor < 10 && !barreiraAberta {
+				barreiraAberta = true
+				fmt.Println("STATUS: Nível seguro. Abrindo barreira.")
+				chAtuador <- ComandoAtuador{Alvo: "BARREIRA", Acao: "ABRIR"}
+			}
+
+		} else if d.Tipo == "temperatura_reator" {
+			if d.Valor > 600 && !alarmeLigado {
+				alarmeLigado = true
+				fmt.Println("ALERTA CRÍTICO: Temperatura do reator excedeu o limite! Acionando alarme.")
+				chAtuador <- ComandoAtuador{Alvo: "ALARME", Acao: "LIGAR_ALARME"}
+			} else if d.Valor <= 500 && alarmeLigado {
+				alarmeLigado = false
+				fmt.Println("STATUS: Temperatura do reator estabilizada. Desligando alarme.")
+				chAtuador <- ComandoAtuador{Alvo: "ALARME", Acao: "DESLIGAR_ALARME"}
+			}
+		}
+		mu.Unlock()
+	}
+}
+
+func recebesensor(chCliente chan<- []byte, DadosSensor chan<- []byte) {
+	endr, _ := net.ResolveUDPAddr("udp", "0.0.0.0:8080")
+	conn, _ := net.ListenUDP("udp", endr)
+	defer conn.Close()
+	fmt.Println("Servidor aguardando dados do Sensor (UDP na porta 8080)...")
+	for {
+		buffer := make([]byte, 1024)
+		n, _, err := conn.ReadFromUDP(buffer)
+		if err != nil {
+			continue
+		}
+		chCliente <- buffer[:n]
+		DadosSensor <- buffer[:n]
+	}
+}
+
+func recebecliente(chAtuador chan<- ComandoAtuador) {
+	ln, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		fmt.Printf("Erro no Listen TCP para cliente: %v\n", err)
+		return
+	}
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			continue
 		}
 
-		fmt.Printf("Estado da barreira: Aberta = %v\n", barreiraAberta)
-		mu.Unlock()
+		buffer := make([]byte, 1024)
+		n, err := conn.Read(buffer)
+
+		if err == nil {
+			comando := strings.ToUpper(strings.TrimSpace(string(buffer[:n])))
+			fmt.Printf("Comando manual do cliente recebido: %s\n", comando)
+
+			mu.Lock() // Lock the state just like processarDecisao does
+			if comando == "ABRIR" || comando == "FECHAR" {
+				barreiraAberta = (comando == "ABRIR")
+				chAtuador <- ComandoAtuador{Alvo: "BARREIRA", Acao: comando}
+			} else if comando == "LIGAR_ALARME" || comando == "DESLIGAR_ALARME" {
+				alarmeLigado = (comando == "LIGAR_ALARME")
+				chAtuador <- ComandoAtuador{Alvo: "ALARME", Acao: comando}
+			} else {
+				fmt.Printf("[AVISO] Comando de cliente não reconhecido pelo roteador: %s\n", comando)
+			}
+			mu.Unlock()
+		}
+
+		conn.Close()
+	}
+
+} // O cliente.go foi programado para abrir e fechar a conexão a cada envio
+
+func enviacliente(ch <-chan []byte) {
+	clienteAddr := os.Getenv("CLIENTE_ADDR")
+	if clienteAddr == "" {
+		clienteAddr = "192.168.0.118:8081"
+	}
+	conn, _ := net.Dial("udp", clienteAddr)
+	for {
+		msg := <-ch
+		if conn != nil {
+			conn.Write(msg)
+		}
 	}
 }
