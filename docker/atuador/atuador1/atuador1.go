@@ -31,11 +31,14 @@ func main() {
 	}
 	defer conn.Close()
 
-	fmt.Println("Conectado! Aguardando comandos do broker...")
+	//PROTOCOLO DE HANDSHAKE
+	fmt.Println("Enviando pacote de registro de dispositivo...")
+	conn.Write([]byte("REGISTRO:BARREIRA"))
+	fmt.Println("Conectado e Registrado! Aguardando comandos do broker...")
 
 	// Buffer para armazenar os bytes recebidos via rede
 	buffer := make([]byte, 1024)
-	
+
 	// Loop infinito bloqueante. Ele pausa na linha conn.Read até que pacotes cheguem.
 	for {
 		n, err := conn.Read(buffer)
@@ -46,13 +49,13 @@ func main() {
 
 		// Limpa os bytes recebidos e converte para string
 		comando := strings.ToUpper(strings.TrimSpace(string(buffer[:n])))
-		executarComando(comando) 
+		executarComando(comando)
 	}
 }
 
 // Função que isola a lógica de negócio estrutural do atuador
 func executarComando(comando string) {
-	// Trava o Mutex. Em arquiteturas concorrentes, isso impede condições de corrida 
+	// Trava o Mutex. Em arquiteturas concorrentes, isso impede condições de corrida
 	// ao ler e escrever na variável global barreiraAberta.
 	mu.Lock()
 	defer mu.Unlock() // Garante que o desbloqueio ocorra quando a função retornar
@@ -74,7 +77,7 @@ func executarComando(comando string) {
 	} else {
 		// Proteção contra payloads inesperados no socket TCP
 		fmt.Printf("[AVISO] Comando desconhecido ignorado: %s\n", comando)
-		return 
+		return
 	}
 
 	fmt.Printf("Estado atual da barreira: Aberta = %v\n", barreiraAberta)

@@ -8,10 +8,9 @@ import (
 	"sync"
 )
 
-// Estado global do alarme e controle de concorrência
 var (
-	alarmeLigado bool       = false
-	mu           sync.Mutex // Previne condições de corrida
+	alarmeLigado bool = false
+	mu           sync.Mutex
 )
 
 func main() {
@@ -20,24 +19,29 @@ func main() {
 		servidorAddr = "192.168.0.71:8082"
 	}
 
-	fmt.Printf("Atuador de Emergência conectando ao Broker TCP em %s...\n", servidorAddr)
+	fmt.Printf("Atuador de Emergência conectando ao Servidor em %s...\n", servidorAddr)
 
 	conn, err := net.Dial("tcp", servidorAddr)
 	if err != nil {
-		fmt.Printf("Falha crítica ao conectar ao servidor: %v\n", err)
+		fmt.Printf("Falha ao conectar ao servidor: %v\n", err)
 		return
 	}
 	defer conn.Close()
 
-	fmt.Println("Conectado! Aguardando sinais do reator nuclear...")
+	// ---- PROTOCOLO DE HANDSHAKE ----
+	// Envia a identificação assim que a conexão TCP é estabelecida
+	fmt.Println("Enviando pacote de registro: REGISTRO:ALARME")
+	conn.Write([]byte("REGISTRO:ALARME"))
+	// --------------------------------
+
+	fmt.Println("Conectado e Registrado! Aguardando comandos do broker...")
 
 	buffer := make([]byte, 1024)
 
-	// Loop bloqueante para escuta contínua de pacotes TCP
 	for {
 		n, err := conn.Read(buffer)
 		if err != nil {
-			fmt.Println("Conexão TCP com o servidor encerrada inesperadamente.")
+			fmt.Println("Conexão com o servidor perdida.")
 			break
 		}
 
@@ -50,7 +54,6 @@ func executarComando(comando string) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Filtro na camada de aplicação: processa apenas os sinais do reator
 	if comando == "LIGAR_ALARME" {
 		if alarmeLigado {
 			fmt.Println("[EMERGÊNCIA] Comando recebido: LIGAR_ALARME. As sirenes JÁ ESTÃO ATIVADAS.")
@@ -65,14 +68,10 @@ func executarComando(comando string) {
 			alarmeLigado = false
 			fmt.Println("[STATUS] Temperatura estabilizada. Desativando sirenes de emergência.")
 		}
-	} else if comando == "ABRIR" || comando == "FECHAR" {
-		// Ignora silenciosamente os comandos do pluviômetro para não poluir o log
 	} else {
-		fmt.Printf("[AVISO] Payload de rede desconhecido ignorado: %s\n", comando)
+		// Como o roteamento agora é exato, se cair aqui é porque o servidor enviou um comando inválido
+		fmt.Printf("[AVISO] Comando desconhecido ignorado: %s\n", comando)
 	}
 
-	// Exibe o estado da máquina de estados deste atuador
-	if comando == "LIGAR_ALARME" || comando == "DESLIGAR_ALARME" {
-		fmt.Printf("Estado atual da Sirene: Ligada = %v\n", alarmeLigado)
-	}
+	fmt.Printf("Estado atual da Sirene: Ligada = %v\n", alarmeLigado)
 }
