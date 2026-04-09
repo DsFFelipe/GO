@@ -17,6 +17,7 @@ run-servidor:
 		-p 8081:8080/tcp \
 		-p 8082:8082/tcp \
 		-e CLIENTE_ADDR=$(CLIENT_IP):8083 \
+		-e CLIENTE_TCP_ADDR=$(CLIENT_IP):8084 \
 		--name container-servidor \
 		img-servidor
 
@@ -26,12 +27,21 @@ run-servidor:
 build-cliente:
 	cd cliente && docker build -t img-cliente -f c.dockerfile .
 
-# TTY
-run-cliente:
+# Terminal 1: Abre a interface de telemetria
+run-cliente-monitor:
 	docker run -it --rm \
 		-p 8083:8083/udp \
+		-p 8084:8084/tcp \
+		-e CLIENTE_MODO=MONITOR \
+		--name container-cliente-monitor \
+		img-cliente
+
+# Terminal 2: Abre a interface de inserção de comandos
+run-cliente-comandos:
+	docker run -it --rm \
 		-e SERVIDOR_ADDR=$(SERVER_IP):8081 \
-		--name container-cliente \
+		-e CLIENTE_MODO=COMANDO \
+		--name container-cliente-comandos \
 		img-cliente
 
 # ==========================================

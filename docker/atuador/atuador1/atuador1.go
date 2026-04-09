@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -8,77 +9,72 @@ import (
 	"sync"
 )
 
-// Estado global da barreira e controle de concorrência
 var (
-	barreiraAberta bool       = true
-	mu             sync.Mutex // Garante acesso seguro à variável de estado
+	barreiraAberta bool = true
+	mu             sync.Mutex
 )
 
 func main() {
-	// O atuador agora atua como cliente TCP e precisa do IP do Servidor
 	servidorAddr := os.Getenv("SERVIDOR_ADDR")
 	if servidorAddr == "" {
-		servidorAddr = "192.168.0.71:8082" // IP do Servidor e porta dedicada a atuadores
+		servidorAddr = "192.168.0.71:8082"
 	}
 
 	fmt.Printf("Atuador conectando ao Servidor em %s...\n", servidorAddr)
 
-	// Inicia a conexão com o servidor (O handshake TCP ocorre aqui)
 	conn, err := net.Dial("tcp", servidorAddr)
 	if err != nil {
-		fmt.Printf("Falha ao conectar ao servidor: %v\n", err)
+		fmt.Printf("Falha ao conectar: %v\n", err)
 		return
 	}
 	defer conn.Close()
 
-	//PROTOCOLO DE HANDSHAKE
-	fmt.Println("Enviando pacote de registro de dispositivo...")
-	conn.Write([]byte("REGISTRO:BARREIRA"))
-	fmt.Println("Conectado e Registrado! Aguardando comandos do broker...")
+	// Adicionado o delimitador \n para a leitura em buffer do servidor
+	conn.Write([]byte("REGISTRO:BARREIRA\n"))
+	fmt.Println("Registrado! Aguardando comandos...")
 
-	// Buffer para armazenar os bytes recebidos via rede
+	// Envia o estado inicial assim que conecta
+	enviarEstado(conn)
+
 	buffer := make([]byte, 1024)
-
-	// Loop infinito bloqueante. Ele pausa na linha conn.Read até que pacotes cheguem.
 	for {
 		n, err := conn.Read(buffer)
 		if err != nil {
-			fmt.Println("Conexão com o servidor perdida (Broker desconectado).")
-			break // Encerra o loop e o programa se a conexão cair
+			fmt.Println("Conexão com o servidor perdida.")
+			break
 		}
-
-		// Limpa os bytes recebidos e converte para string
 		comando := strings.ToUpper(strings.TrimSpace(string(buffer[:n])))
-		executarComando(comando)
+		executarComando(comando, conn)
 	}
 }
 
-// Função que isola a lógica de negócio estrutural do atuador
-func executarComando(comando string) {
-	// Trava o Mutex. Em arquiteturas concorrentes, isso impede condições de corrida
-	// ao ler e escrever na variável global barreiraAberta.
+func executarComando(comando string, conn net.Conn) {
 	mu.Lock()
-	defer mu.Unlock() // Garante que o desbloqueio ocorra quando a função retornar
-
 	if comando == "ABRIR" {
-		if barreiraAberta {
-			fmt.Println("[SERVIDOR] Comando recebido: ABRIR. A barreira já está aberta.")
-		} else {
-			barreiraAberta = true
-			fmt.Println("[SERVIDOR] Comando recebido: Abrindo barreira.")
-		}
+		barreiraAberta = true
 	} else if comando == "FECHAR" {
-		if !barreiraAberta {
-			fmt.Println("[SERVIDOR] Comando recebido: FECHAR. A barreira já está fechada.")
-		} else {
-			barreiraAberta = false
-			fmt.Println("[SERVIDOR] Comando recebido: Fechando barreira.")
-		}
+		barreiraAberta = false
 	} else {
-		// Proteção contra payloads inesperados no socket TCP
-		fmt.Printf("[AVISO] Comando desconhecido ignorado: %s\n", comando)
+		fmt.Printf("[AVISO] Comando desconhecido: %s\n", comando)
+		mu.Unlock()
 		return
 	}
-
 	fmt.Printf("Estado atual da barreira: Aberta = %v\n", barreiraAberta)
+	mu.Unlock()
+
+	// Retorna o feedback do estado atualizado para o servidor
+	enviarEstado(conn)
+}
+
+func enviarEstado(conn net.Conn) {
+	mu.Lock()
+	estado := barreiraAberta
+	mu.Unlock()
+
+	dados := map[string]interface{}{
+		"id":     "BARREIRA",
+		"ligado": estado,
+	}
+	b, _ := json.Marshal(dados)
+	conn.Write(append(b, '\n')) // Delimitador de stream TCP
 }

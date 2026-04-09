@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -35,33 +36,29 @@ var (
 func main() {
 	sensorParaClienteChan := make(chan []byte)
 	DadosSensor := make(chan []byte)
-
 	chAtuadores := make(chan ComandoAtuador)
 
-	// Passe o canal chAtuadores para o cliente
-	go recebecliente(chAtuadores)
+	// Novo canal para o pipeline de estados dos atuadores
+	estadoAtuadorChan := make(chan []byte)
 
+	go recebecliente(chAtuadores)
 	go recebesensor(sensorParaClienteChan, DadosSensor)
-	go enviacliente(sensorParaClienteChan)
+	go enviacliente(sensorParaClienteChan) // Mantém envio UDP de sensores
 	go processarDecisao(DadosSensor, chAtuadores)
-	go recebeAtuadores()
+
+	go recebeAtuadores(estadoAtuadorChan)
 	go enviaComandosParaAtuadores(chAtuadores)
+	go enviaEstadoTCP(estadoAtuadorChan) // Novo envio TCP de estados
 
 	select {}
 }
 
-// ==========================================
-// BROKER DE ATUADORES COM ROTEAMENTO (TCP: 8082)
-// ==========================================
-func recebeAtuadores() {
+func recebeAtuadores(chEstado chan<- []byte) {
 	ln, err := net.Listen("tcp", ":8082")
 	if err != nil {
-		fmt.Printf("Erro no Listen TCP para atuadores: %v\n", err)
 		return
 	}
 	defer ln.Close()
-
-	fmt.Println("Servidor aguardando conexões de Atuadores (TCP na porta 8082)...")
 
 	for {
 		conn, err := ln.Accept()
@@ -69,19 +66,18 @@ func recebeAtuadores() {
 			continue
 		}
 
-		// Inicia uma goroutine para lidar com o Handshake sem bloquear o Accept
 		go func(c net.Conn) {
-			buffer := make([]byte, 1024)
-			n, err := c.Read(buffer)
+			reader := bufio.NewReader(c)
+
+			// Lê o handshake até o delimitador \n
+			linha, err := reader.ReadString('\n')
 			if err != nil {
 				c.Close()
 				return
 			}
 
-			// Lê o primeiro pacote para descobrir quem conectou
-			identificacao := strings.TrimSpace(string(buffer[:n]))
+			identificacao := strings.TrimSpace(linha)
 			tipo := "DESCONHECIDO"
-
 			if identificacao == "REGISTRO:BARREIRA" {
 				tipo = "BARREIRA"
 			} else if identificacao == "REGISTRO:ALARME" {
@@ -89,13 +85,44 @@ func recebeAtuadores() {
 			}
 
 			muAtuadores.Lock()
-			atuadoresAtivos[c] = tipo // Registra na tabela de roteamento
+			atuadoresAtivos[c] = tipo
 			muAtuadores.Unlock()
 
-			fmt.Printf("Novo atuador registrado: %s em %s\n", tipo, c.RemoteAddr().String())
+			// Loop contínuo para ouvir os estados deste atuador específico
+			for {
+				pacoteEstado, err := reader.ReadBytes('\n')
+				if err != nil {
+					c.Close()
+					muAtuadores.Lock()
+					delete(atuadoresAtivos, c)
+					muAtuadores.Unlock()
+					break
+				}
+				chEstado <- pacoteEstado
+			}
 		}(conn)
 	}
 }
+
+// Estabelece conexão TCP pontual para garantir a entrega do estado crítico
+func enviaEstadoTCP(ch <-chan []byte) {
+	clienteTCP := os.Getenv("CLIENTE_TCP_ADDR")
+	if clienteTCP == "" {
+		clienteTCP = "192.168.0.118:8084"
+	}
+
+	for msg := range ch {
+		conn, err := net.Dial("tcp", clienteTCP)
+		if err == nil {
+			conn.Write(msg)
+			conn.Close() // Fecha após envio (comportamento de webhook/push)
+		}
+	}
+}
+
+// ==========================================
+// BROKER DE ATUADORES COM ROTEAMENTO (TCP: 8082)
+// ==========================================
 
 func enviaComandosParaAtuadores(ch <-chan ComandoAtuador) {
 	for comando := range ch {
