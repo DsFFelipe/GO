@@ -73,3 +73,14 @@ run-atuador1:
 		--name container-atuador1 \
 		img-atuador1
 
+# ==========================================
+# ATUADOR 2 (Sirene de Emergência)
+# ==========================================
+build-atuador2:
+	cd atuador/atuador2 && docker build -t img-atuador2 -f a2.dockerfile .
+
+run-atuador2:
+	docker run -d --rm \
+		-e SERVIDOR_ADDR=$(SERVER_IP):8082 \
+		--name container-atuador2 \
+		img-atuador2
