@@ -1,7 +1,7 @@
 # LAN padrão
-SERVER_IP ?= 192.168.15.71
-CLIENT_IP ?= 192.168.15.71
-ACTUATOR_IP ?= 192.168.15.71
+SERVER_IP ?=  192.168.15.187
+CLIENT_IP ?=  192.168.15.187
+ACTUATOR_IP ?=  192.168.15.187
 SENSOR_LOCAL ?= "Padrao"
 
 # ==========================================
