@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Dados struct {
@@ -20,7 +21,7 @@ type Dados struct {
 // Estrutura para o roteamento interno de comandos
 type ComandoAtuador struct {
 	Alvo string // "BARREIRA" ou "ALARME"
-	Acao string // "ABRIR", "LIGAR_ALARME", etc.
+	Acao string // "ABRIR", "LIGAR_ALARME"
 }
 
 var (
@@ -35,16 +36,23 @@ var (
 
 func main() {
 	sensorParaClienteChan := make(chan []byte)
-	DadosSensor := make(chan []byte)
+
+	DadosSensor := make(chan []byte, 100)
+
 	chAtuadores := make(chan ComandoAtuador)
 
-	// Novo canal para o pipeline de estados dos atuadores
+	// Canal para o pipeline de estados dos atuadores
 	estadoAtuadorChan := make(chan []byte)
 
 	go recebecliente(chAtuadores)
 	go recebesensor(sensorParaClienteChan, DadosSensor)
 	go enviacliente(sensorParaClienteChan) // Mantém envio UDP de sensores
 	go processarDecisao(DadosSensor, chAtuadores)
+
+	//Thread Pool
+	for i := 0; i < 3; i++ {
+		go processarDecisao(DadosSensor, chAtuadores)
+	}
 
 	go recebeAtuadores(estadoAtuadorChan)
 	go enviaComandosParaAtuadores(chAtuadores)
@@ -112,8 +120,10 @@ func enviaEstadoTCP(ch <-chan []byte) {
 	}
 
 	for msg := range ch {
-		conn, err := net.Dial("tcp", clienteTCP)
+		// Timeout de Dial para não bloquear o servidor caso o cliente monitor caia
+		conn, err := net.DialTimeout("tcp", clienteTCP, 2*time.Second)
 		if err == nil {
+			conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 			conn.Write(msg)
 			conn.Close() // Fecha após envio (comportamento de webhook/push)
 		}
@@ -130,9 +140,10 @@ func enviaComandosParaAtuadores(ch <-chan ComandoAtuador) {
 		for conn, tipo := range atuadoresAtivos {
 			// Filtro de Roteamento: Só envia se o alvo bater com o tipo registrado
 			if tipo == comando.Alvo {
+				conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 				_, err := conn.Write([]byte(comando.Acao))
 				if err != nil {
-					fmt.Printf("Atuador desconectado: %s\n", conn.RemoteAddr().String())
+					fmt.Printf("Atuador desconectado (falha de escrita): %s\n", conn.RemoteAddr().String())
 					conn.Close()
 					delete(atuadoresAtivos, conn)
 				}
@@ -199,6 +210,9 @@ func recebesensor(chCliente chan<- []byte, DadosSensor chan<- []byte) {
 	}
 }
 
+// ==========================================
+// RECEÇÃO DE COMANDOS DO CLIENTE (TCP) COM PROTEÇÃO DE FALHAS
+// ==========================================
 func recebecliente(chAtuador chan<- ComandoAtuador) {
 	ln, err := net.Listen("tcp", ":8080")
 	if err != nil {
@@ -212,6 +226,9 @@ func recebecliente(chAtuador chan<- ComandoAtuador) {
 			continue
 		}
 
+		// IMPLEMENTAÇÃO DE DEADLINE: Protege o servidor contra clientes "zombies"
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+
 		buffer := make([]byte, 1024)
 		n, err := conn.Read(buffer)
 
@@ -219,23 +236,50 @@ func recebecliente(chAtuador chan<- ComandoAtuador) {
 			comando := strings.ToUpper(strings.TrimSpace(string(buffer[:n])))
 			fmt.Printf("Comando manual do cliente recebido: %s\n", comando)
 
-			mu.Lock() // Lock the state just like processarDecisao does
+			// Determinar o alvo lógico
+			alvo := "DESCONHECIDO"
 			if comando == "ABRIR" || comando == "FECHAR" {
-				barreiraAberta = (comando == "ABRIR")
-				chAtuador <- ComandoAtuador{Alvo: "BARREIRA", Acao: comando}
+				alvo = "BARREIRA"
 			} else if comando == "LIGAR_ALARME" || comando == "DESLIGAR_ALARME" {
-				alarmeLigado = (comando == "LIGAR_ALARME")
-				chAtuador <- ComandoAtuador{Alvo: "ALARME", Acao: comando}
-			} else {
-				fmt.Printf("[AVISO] Comando de cliente não reconhecido pelo roteador: %s\n", comando)
+				alvo = "ALARME"
 			}
-			mu.Unlock()
+
+			// VERIFICAÇÃO DE ESTADO: Avalia se o atuador alvo está realmente registado e online
+			muAtuadores.Lock()
+			atuadorOnline := false
+			for _, tipo := range atuadoresAtivos {
+				if tipo == alvo {
+					atuadorOnline = true
+					break
+				}
+			}
+			muAtuadores.Unlock()
+
+			// Feedback direto e síncrono para a aplicação cliente
+			conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+			if !atuadorOnline && alvo != "DESCONHECIDO" {
+				msgErro := fmt.Sprintf("FALHA: Nao e possivel executar '%s'. O atuador %s esta DESCONECTADO.\n", comando, alvo)
+				conn.Write([]byte(msgErro))
+			} else if alvo != "DESCONHECIDO" {
+				// Atualiza o estado interno e encarrega o broker de rotear
+				mu.Lock()
+				if alvo == "BARREIRA" {
+					barreiraAberta = (comando == "ABRIR")
+				} else if alvo == "ALARME" {
+					alarmeLigado = (comando == "LIGAR_ALARME")
+				}
+				mu.Unlock()
+
+				chAtuador <- ComandoAtuador{Alvo: alvo, Acao: comando}
+				conn.Write([]byte("SUCESSO: Comando aceite e roteado para " + alvo + "\n"))
+			} else {
+				conn.Write([]byte("ERRO: Comando nao reconhecido.\n"))
+			}
 		}
 
 		conn.Close()
 	}
-
-} // O cliente.go foi programado para abrir e fechar a conexão a cada envio
+}
 
 func enviacliente(ch <-chan []byte) {
 	clienteAddr := os.Getenv("CLIENTE_ADDR")
