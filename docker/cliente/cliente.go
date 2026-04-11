@@ -24,9 +24,15 @@ type EstadoAtuador struct {
 	Ligado bool   `json:"ligado"`
 }
 
-// Variáveis de estado global e seus respectivos Mutexes
+// Nova estrutura para o Critério 8: Controlo de Heartbeat/Timeout
+type SensorStatus struct {
+	Dados       MensagemSensor
+	UltimoVisto time.Time
+}
+
+// Variáveis de estado global e os seus respetivos Mutexes
 var (
-	sensoresAtivos = make(map[string]MensagemSensor)
+	sensoresAtivos = make(map[string]SensorStatus)
 	mu             sync.Mutex
 
 	estadosAtuadores = make(map[string]EstadoAtuador)
@@ -58,7 +64,12 @@ func main() {
 // MODO: MONITOR
 // ==========================================
 func recebe() {
-	endr, err := net.ResolveUDPAddr("udp", ":8083")
+	port := os.Getenv("MONITOR_UDP_PORT")
+	if port == "" {
+		port = "8083"
+	}
+
+	endr, err := net.ResolveUDPAddr("udp", ":"+port)
 	if err != nil {
 		fmt.Printf("Falha na resolução de endereço UDP: %v\n", err)
 		return
@@ -78,7 +89,11 @@ func recebe() {
 			if err := json.Unmarshal(buffer[:n], &dados); err == nil {
 				mu.Lock()
 				chave := fmt.Sprintf("%s-%s", dados.Tipo, dados.Localidade)
-				sensoresAtivos[chave] = dados
+				// Regista o tempo exato em que o pacote foi recebido
+				sensoresAtivos[chave] = SensorStatus{
+					Dados:       dados,
+					UltimoVisto: time.Now(),
+				}
 				mu.Unlock()
 			}
 		}
@@ -86,7 +101,12 @@ func recebe() {
 }
 
 func recebeAtuadoresTCP() {
-	ln, err := net.Listen("tcp", ":8084")
+	port := os.Getenv("MONITOR_TCP_PORT")
+	if port == "" {
+		port = "8084"
+	}
+
+	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		fmt.Printf("Erro ao iniciar ouvinte TCP para atuadores: %v\n", err)
 		return
@@ -117,6 +137,7 @@ func renderLoop() {
 	// Utiliza um Ticker para garantir ciclos precisos a cada 500ms
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+	timeoutSensor := 10 * time.Second // Limite de inatividade para considerar falha
 
 	for range ticker.C {
 		// Executa o comando nativo do Linux (Alpine) para limpar o terminal
@@ -131,8 +152,13 @@ func renderLoop() {
 		if len(sensoresAtivos) == 0 {
 			fmt.Println("Aguardando pacotes de sensores na rede...")
 		} else {
-			for _, dados := range sensoresAtivos {
-				fmt.Printf("Sensor: %-20s | Local: %-10s | Valor: %d\n", dados.Tipo, dados.Localidade, dados.Valor)
+			for _, status := range sensoresAtivos {
+				// Lógica de falha: Se o tempo desde o último pacote for maior que o timeout
+				if time.Since(status.UltimoVisto) > timeoutSensor {
+					fmt.Printf("[ALERTA] Sensor: %-20s | Local: %-10s | STATUS: DESCONECTADO (Timeout)\n", status.Dados.Tipo, status.Dados.Localidade)
+				} else {
+					fmt.Printf("Sensor: %-20s | Local: %-10s | Valor: %d\n", status.Dados.Tipo, status.Dados.Localidade, status.Dados.Valor)
+				}
 			}
 		}
 		mu.Unlock()
@@ -182,12 +208,33 @@ func envia(ch <-chan string) {
 	}
 
 	for msg := range ch {
-		conn, err := net.Dial("tcp", servidorAddr)
+		// USO DE TIMEOUT NO DIAL: Evita que o cliente bloqueie se o IP do servidor não existir
+		conn, err := net.DialTimeout("tcp", servidorAddr, 3*time.Second)
 		if err != nil {
-			fmt.Printf("\nErro de roteamento TCP ao servidor: %v\n", err)
+			fmt.Printf("\n[ERRO CRÍTICO] Servidor inacessível: %v\n> ", err)
 			continue
 		}
-		conn.Write([]byte(msg))
+
+		// USO DE TIMEOUT DE ESCRITA: Protege contra buffers de rede cheios
+		conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+		_, err = conn.Write([]byte(msg))
+		if err != nil {
+			fmt.Printf("\n[ERRO] Falha ao enviar comando para o socket: %v\n> ", err)
+			conn.Close()
+			continue
+		}
+
+		// USO DE TIMEOUT DE LEITURA: Aguarda o feedback garantido do servidor
+		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		respBuffer := make([]byte, 1024)
+		n, err := conn.Read(respBuffer)
+		if err != nil {
+			fmt.Printf("\n[AVISO] Servidor não confirmou o comando (Timeout de Leitura)\n> ")
+		} else {
+			// Imprime a resposta exata do servidor (Sucesso ou Falha do Atuador)
+			fmt.Printf("\n[RESPOSTA DO SERVIDOR] %s> ", string(respBuffer[:n]))
+		}
+
 		conn.Close()
 	}
 }
