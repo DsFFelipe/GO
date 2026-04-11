@@ -76,5 +76,3 @@ Inicie a transmissão de dados injetando os sensores na rede:
 
 make run-sensor1  
 make run-sensor2
-
-*Nota para testes de estresse:* Utilize o script docker/rodar\_sensores.bat para provisionar em *batch* uma malha densa (10 instâncias concorrentes) do Sensor 2 e avaliar o comportamento do Broker sob carga contínua.
