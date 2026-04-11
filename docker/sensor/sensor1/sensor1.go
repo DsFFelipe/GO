@@ -96,7 +96,7 @@ func enviarDados() {
 
 		fmt.Printf("[%s] Enviado: %d microsievert por hora em %s\n", sensorID, valor, localAtual)
 
-		// Intervalo de amostragem de 3 segundos (Duty Cycle).
-		time.Sleep(3 * time.Second)
+		// Intervalo de amostragem de 1 segundos (Duty Cycle).
+		time.Sleep(1 * time.Second)
 	}
 }

@@ -50,7 +50,7 @@ func main() {
 			fmt.Printf("[%s] Enviado: %d°C\n", sensorID, tempCelsius)
 		}
 
-		// Taxa de envio rápida para monitorização de infraestrutura crítica (1 segundo)
-		time.Sleep(3 * time.Second)
+		// Taxa de envio mediana para monitorização de infraestrutura crítica (1 segundo)
+		time.Sleep(1 * time.Second)
 	}
 }

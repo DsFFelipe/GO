@@ -36,7 +36,7 @@ func main() {
 
 	var pacotesEnviados uint64
 
-	// 1. LANÇAR ATUADORES (TCP)
+	// LANÇAR ATUADORES (TCP)
 	for i := 1; i <= numAtuadores; i++ {
 		go func(id int) {
 			addr := fmt.Sprintf("%s:8082", servidorIP)
@@ -62,7 +62,7 @@ func main() {
 		}(i)
 	}
 
-	// 2. LANÇAR SENSORES (UDP)
+	// LANÇAR SENSORES (UDP)
 	for i := 0; i < numSensores; i++ {
 		go func(id int) {
 			addr := fmt.Sprintf("%s:8080", servidorIP)
@@ -82,7 +82,7 @@ func main() {
 				msgBytes, _ := json.Marshal(dados)
 				conn.Write(msgBytes)
 				atomic.AddUint64(&pacotesEnviados, 1)
-				time.Sleep(50 * time.Millisecond)
+				time.Sleep(10 * time.Millisecond)
 			}
 		}(i)
 	}
