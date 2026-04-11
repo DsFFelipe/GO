@@ -64,7 +64,12 @@ func main() {
 // MODO: MONITOR
 // ==========================================
 func recebe() {
-	endr, err := net.ResolveUDPAddr("udp", ":8083")
+	port := os.Getenv("MONITOR_UDP_PORT")
+	if port == "" {
+		port = "8083"
+	}
+
+	endr, err := net.ResolveUDPAddr("udp", ":"+port)
 	if err != nil {
 		fmt.Printf("Falha na resolução de endereço UDP: %v\n", err)
 		return
@@ -96,7 +101,12 @@ func recebe() {
 }
 
 func recebeAtuadoresTCP() {
-	ln, err := net.Listen("tcp", ":8084")
+	port := os.Getenv("MONITOR_TCP_PORT")
+	if port == "" {
+		port = "8084"
+	}
+
+	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		fmt.Printf("Erro ao iniciar ouvinte TCP para atuadores: %v\n", err)
 		return

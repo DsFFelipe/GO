@@ -62,8 +62,15 @@ func main() {
 }
 
 func recebeAtuadores(chEstado chan<- []byte) {
-	ln, err := net.Listen("tcp", ":8082")
+	port := os.Getenv("ATUADOR_PORT")
+	if port == "" {
+		port = "8082"
+	}
+
+	ln, err := net.Listen("tcp", ":"+port)
+
 	if err != nil {
+		fmt.Printf("Erro no Listen TCP Atuadores: %v\n", err)
 		return
 	}
 	defer ln.Close()
@@ -195,7 +202,12 @@ func processarDecisao(chSensor <-chan []byte, chAtuador chan<- ComandoAtuador) {
 }
 
 func recebesensor(chCliente chan<- []byte, DadosSensor chan<- []byte) {
-	endr, _ := net.ResolveUDPAddr("udp", "0.0.0.0:8080")
+	port := os.Getenv("SENSOR_PORT")
+	if port == "" {
+		port = "8080"
+	} // Fallback
+
+	endr, _ := net.ResolveUDPAddr("udp", "0.0.0.0:"+port)
 	conn, _ := net.ListenUDP("udp", endr)
 	defer conn.Close()
 	fmt.Println("Servidor aguardando dados do Sensor (UDP na porta 8080)...")
@@ -214,7 +226,12 @@ func recebesensor(chCliente chan<- []byte, DadosSensor chan<- []byte) {
 // RECEÇÃO DE COMANDOS DO CLIENTE (TCP) COM PROTEÇÃO DE FALHAS
 // ==========================================
 func recebecliente(chAtuador chan<- ComandoAtuador) {
-	ln, err := net.Listen("tcp", ":8080")
+	port := os.Getenv("CLIENTE_PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		fmt.Printf("Erro no Listen TCP para cliente: %v\n", err)
 		return
