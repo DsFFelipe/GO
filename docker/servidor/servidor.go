@@ -175,10 +175,10 @@ func processarDecisao(chSensor <-chan []byte, chAtuador chan<- ComandoAtuador) {
 
 		mu.Lock()
 
-		if d.Tipo == "pluviometro" {
+		if d.Tipo == "Geiger" {
 			if d.Valor > 95 && barreiraAberta {
 				barreiraAberta = false
-				fmt.Println("ALERTA: Nível crítico de chuva! Fechando barreira.")
+				fmt.Println("ALERTA: Nível crítico de radiação! Fechando barreira.")
 				chAtuador <- ComandoAtuador{Alvo: "BARREIRA", Acao: "FECHAR"}
 			} else if d.Valor < 10 && !barreiraAberta {
 				barreiraAberta = true

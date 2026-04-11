@@ -109,3 +109,13 @@ run-atuador2:
 		-e SERVIDOR_ADDR=$(SERVER_IP):$(SERVIDOR_ATUADOR_PORT) \
 		--name container-atuador2 \
 		img-atuador2
+
+build-testes:
+	cd Testes && docker build -t img-loadtest -f lt.dockerfile .
+
+run-loadtest:
+	docker run -it --rm \
+		-e SERVIDOR_ADDR=$(SERVER_IP):$(SERVIDOR_UDP_PORT) \
+		-e NUM_SENSORES=1000 \
+		--name container-loadtest \
+		img-loadtest

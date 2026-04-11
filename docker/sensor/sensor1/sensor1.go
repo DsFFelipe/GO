@@ -72,7 +72,7 @@ func enviarDados() {
 		// O mapa agora inclui o campo "id" para diferenciar instâncias
 		dados := map[string]interface{}{
 			"id":         sensorID,
-			"tipo":       "pluviometro",
+			"tipo":       "Geiger",
 			"valor":      valor,
 			"localidade": localAtual,
 		}
@@ -80,7 +80,7 @@ func enviarDados() {
 		msgBytes, _ := json.Marshal(dados)
 		conn.Write(msgBytes)
 
-		fmt.Printf("[%s] Enviado: %d mm em %s\n", sensorID, valor, localAtual)
+		fmt.Printf("[%s] Enviado: %d microsievert por hora em %s\n", sensorID, valor, localAtual)
 		time.Sleep(3 * time.Second)
 	}
 }
