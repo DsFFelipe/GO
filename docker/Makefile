@@ -120,7 +120,8 @@ build-testes:
 
 run-loadtest:
 	docker run -it --rm \
-		-e SERVIDOR_ADDR=$(SERVER_IP):$(SERVIDOR_UDP_PORT) \
+		-e SERVIDOR_UDP_ADDR=$(SERVER_IP):$(SERVIDOR_UDP_PORT) \
+		-e SERVIDOR_TCP_ADDR=$(SERVER_IP):$(SERVIDOR_ATUADOR_PORT) \
 		-e NUM_SENSORES=1000 \
 		--name container-loadtest \
 		img-loadtest
